@@ -81,6 +81,17 @@ class IfSpec:
 
         self.assertEqual(var_w, 2)
 
+    def test_if_greater_with_else(self):
+        var_q = 5
+        var_w = 2
+
+        if var_q > 1:
+            var_w = 6
+        else:
+            var_w = 7
+
+        self.assertEqual(var_w, 6)
+
     def test_if_less_then_number(self):
         var_q = 1
         var_w = 0
@@ -89,6 +100,24 @@ class IfSpec:
             var_w = 2
 
         self.assertEqual(var_w, 2)
+
+    def test_if_less_then_with_else(self):
+        var_q = 1
+        var_w = 0
+
+        if var_q < 2:
+            var_w = 2
+        else:
+            var_w = 3
+
+        self.assertEqual(var_w, 2)
+
+    # def test_if_assign(self):
+    #     var_q = 1
+
+    #     var_w = 2 if var_q == 1 else 3
+
+    #     self.assertEqual(var_w, 2)
 
     # def test_if_not_equal_assign_variable(self):
     #     var_q = 1
