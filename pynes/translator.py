@@ -102,6 +102,12 @@ class PythonTo6502:
             self.output.append(f'LDA {left_value}')
             self.output.append('SEC')
             self.output.append(f'SBC {right_value}')
+        elif isinstance(node.op, ast.BitAnd):
+            self.output.append(f'LDA {left_value}')
+            self.output.append(f'AND {right_value}')
+        elif isinstance(node.op, ast.BitOr):
+            self.output.append(f'LDA {left_value}')
+            self.output.append(f'ORA {right_value}')
         else:
             raise NotImplementedError(
                 f'Unsupported BinOp {type(node.op).__name__}'
