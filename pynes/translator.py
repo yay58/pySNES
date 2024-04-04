@@ -5,6 +5,7 @@ class PythonTo6502:
     def __init__(self):
         self.output = []
         self.label_count = 0
+        self.context_loop_end_label = None
 
     def translate(self, python_code):
         # Parse Python code into an AST
@@ -99,6 +100,45 @@ class PythonTo6502:
             self.visit(stmt)
         self.output.append(f'{end_label}:')
         self.output.append('NOP')   # TODO: remove this NOP
+
+    def visit_While(self, node):
+        # Generate code for while loop
+        start_label = self._generate_label()
+        true_label = self._generate_label()
+        end_label = self._generate_label()
+        self.output.append(f'{start_label}:')
+        self.visit(node.test)
+        if len(node.test.ops) == 1:
+            op = node.test.ops[0]
+            if isinstance(op, ast.Eq):
+                self.output.append(f'BEQ {true_label}')
+            elif isinstance(op, ast.NotEq):
+                self.output.append(f'BNE {true_label}')
+            elif isinstance(op, ast.Lt):
+                self.output.append(f'BMI {true_label}')
+            elif isinstance(op, ast.Gt):
+                self.output.append(f'BPL {true_label}')
+            else:
+                raise NotImplementedError(
+                    f'Operators not supported {type(op).__name__}'
+                )
+        else:
+            raise NotImplementedError('Multiple operators not supported')
+        self.output.append(f'JMP {end_label}')
+        self.output.append(f'{true_label}:')
+        self.context_loop_end_label = end_label
+        for stmt in node.body:
+            self.visit(stmt)
+        self.context_loop_end_label = None
+        self.output.append(f'JMP {start_label}')
+        self.output.append(f'{end_label}:')
+        self.output.append('NOP')   # TODO: remove this NOP
+
+    def visit_Break(self, node):
+        if self.context_loop_end_label is not None:
+            self.output.append(f'JMP {self.context_loop_end_label}')
+        else:
+            raise NotImplementedError(f'No loop to break')
 
     def _generate_label(self):
         label = f'label_{self.label_count}'
