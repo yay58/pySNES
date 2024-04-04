@@ -44,6 +44,12 @@ class AssignSpec:
 
         self.assertEqual(var_e, 0)
 
+    def test_assign_variable(self):
+        var_q = 5
+        var_e = var_q
+
+        self.assertEqual(var_e, 5)
+
     # @skip('TODO')
     # def test_assign_multiple(self):
     #     var_q = var_w = 22

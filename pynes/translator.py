@@ -54,8 +54,16 @@ class PythonTo6502:
     def visit_Assign(self, node):
         # Handle variable assignment
         var_name = node.targets[0].id
-        value = self.visit(node.value)
-        self.output.append(f'LDA #{value}')
+        if isinstance(node.value, ast.Constant):
+            var_value = f'#{node.value.value}'
+        elif isinstance(node.value, ast.Name):
+            var_value = node.value.id
+        else:
+            raise NotImplementedError(
+                f'Invalid Assign with: {type(node.value).__name__}'
+            )
+
+        self.output.append(f'LDA {var_value}')
         self.output.append(f'STA {var_name}')
 
     def visit_AugAssign(self, node):
