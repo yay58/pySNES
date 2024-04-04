@@ -86,8 +86,14 @@ class PythonTo6502:
         # Handle binary operations
         left = node.left
         right = node.right
-        left_value = left.id
-        right_value = right.id
+        if isinstance(left, ast.Name):
+            left_value = left.id
+        elif isinstance(left, ast.Constant):
+            left_value = f'#{left.value}'
+        if isinstance(right, ast.Name):
+            right_value = right.id
+        elif isinstance(right, ast.Constant):
+            right_value = f'#{right.value}'
         if isinstance(node.op, ast.Add):
             self.output.append(f'LDA {left_value}')
             self.output.append('CLC')

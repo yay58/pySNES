@@ -55,12 +55,47 @@ class MathSpec:
 
         self.assertEqual(var_e, 0)
 
-    # def test_sum_1_plus_1_with_const(self):
-    #     var_q = 1 + 1
+    def test_sum_1_plus_1_with_const(self):
+        var_q = 1 + 1
 
-    #     self.assertEqual(var_q, 2)
+        self.assertEqual(var_q, 2)
 
-    # def test_sum_1_plus_2_with_const(self):
-    #     var_q = 1 + 2
+    def test_sum_1_plus_2_with_const(self):
+        var_q = 1 + 2
 
-    #     self.assertEqual(var_q, 3)
+        self.assertEqual(var_q, 3)
+
+    def test_sum_2_plus_2_with_const(self):
+        var_q = 2 + 2
+
+        self.assertEqual(var_q, 4)
+
+    def test_sum_3_plus_1_with_const(self):
+        var_q = 3 + 1
+
+        self.assertEqual(var_q, 4)
+
+    def test_sub_3_minus_1_with_const(self):
+        var_q = 3 - 1
+
+        self.assertEqual(var_q, 2)
+
+    def test_sub_2_minus_2_with_const(self):
+        var_q = 2 - 2
+
+        self.assertEqual(var_q, 0)
+
+    def test_sub_2_minus_1_with_const(self):
+        var_q = 2 - 1
+
+        self.assertEqual(var_q, 1)
+
+    def test_sub_1_minus_1_with_const(self):
+        var_q = 1 - 1
+
+        self.assertEqual(var_q, 0)
+
+    # def test_add_sequential(self):
+    #     var_q = 2 + 2 + 4 + 8
+
+    #     self.assertEqual(var_q, 16)
