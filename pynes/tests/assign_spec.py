@@ -1,5 +1,6 @@
 from unittest import skip
 
+
 class AssignSpec:
     def test_asssign(self):
         var_q = 1
@@ -42,7 +43,7 @@ class AssignSpec:
         var_e -= 2
 
         self.assertEqual(var_e, 0)
-    
+
     # @skip('TODO')
     # def test_assign_multiple(self):
     #     var_q = var_w = 22

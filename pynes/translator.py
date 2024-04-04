@@ -70,20 +70,35 @@ class PythonTo6502:
             self.output.append('SEC')
             self.output.append(f'SBC #{value}')
             self.output.append(f'STA {var_name}')
-        else:
-            raise NotImplementedError(
-                f'Operation not supported {type(node.op).__name__}'
-            )
 
-    def visit_BinOp(self, node):
-        # Handle binary operations
-        left = self.visit(node.left)
-        right = self.visit(node.right)
-        if isinstance(node.op, ast.Add):
-            return f'{left}+{right}'
-        elif isinstance(node.op, ast.Sub):
-            return f'{left}-{right}'
-        # Implement other binary operations as needed
+    def visit_If(self, node):
+        self.visit(node.test)
+        true_label = self._generate_label()
+        end_label = self._generate_label()
+        if len(node.test.ops) == 1:
+            op = node.test.ops[0]
+            if isinstance(op, ast.Eq):
+                self.output.append(f'BEQ {true_label}')
+            elif isinstance(op, ast.NotEq):
+                self.output.append(f'BNE {true_label}')
+            elif isinstance(op, ast.Lt):
+                self.output.append(f'BMI {true_label}')
+            elif isinstance(op, ast.Gt):
+                self.output.append(f'BPL {true_label}')
+            else:
+                raise NotImplementedError(
+                    f'Operators not supported {type(op).__name__}'
+                )
+        else:
+            raise NotImplementedError('Multiple operators not supported')
+        for stmt in node.orelse:
+            self.visit(stmt)
+        self.output.append(f'JMP {end_label}')
+        self.output.append(f'{true_label}:')
+        for stmt in node.body:
+            self.visit(stmt)
+        self.output.append(f'{end_label}:')
+        self.output.append('NOP')   # TODO: remove this NOP
 
     def _generate_label(self):
         label = f'label_{self.label_count}'
