@@ -27,6 +27,9 @@ class PythonTo6502:
             f'Visit method not implemented for {type(node).__name__}'
         )
 
+    def visit_Name(self, node):
+        pass
+
     def visit_Constant(self, node):
         return node.value
 
@@ -54,16 +57,15 @@ class PythonTo6502:
     def visit_Assign(self, node):
         # Handle variable assignment
         var_name = node.targets[0].id
+        var_value = None
+        self.visit(node.value)
         if isinstance(node.value, ast.Constant):
             var_value = f'#{node.value.value}'
         elif isinstance(node.value, ast.Name):
             var_value = node.value.id
-        else:
-            raise NotImplementedError(
-                f'Invalid Assign with: {type(node.value).__name__}'
-            )
 
-        self.output.append(f'LDA {var_value}')
+        if var_value is not None:
+            self.output.append(f'LDA {var_value}')
         self.output.append(f'STA {var_name}')
 
     def visit_AugAssign(self, node):
@@ -79,6 +81,31 @@ class PythonTo6502:
             self.output.append('SEC')
             self.output.append(f'SBC #{value}')
             self.output.append(f'STA {var_name}')
+
+    def visit_BinOp(self, node):
+        # Handle binary operations
+        left = node.left
+        right = node.right
+        if isinstance(left, ast.Name):
+            left_value = left.id
+        elif isinstance(left, ast.Constant):
+            left_value = f'#{left.value}'
+        if isinstance(right, ast.Name):
+            right_value = right.id
+        elif isinstance(right, ast.Constant):
+            right_value = f'#{right.value}'
+        if isinstance(node.op, ast.Add):
+            self.output.append(f'LDA {left_value}')
+            self.output.append('CLC')
+            self.output.append(f'ADC {right_value}')
+        elif isinstance(node.op, ast.Sub):
+            self.output.append(f'LDA {left_value}')
+            self.output.append('SEC')
+            self.output.append(f'SBC {right_value}')
+        else:
+            raise NotImplementedError(
+                f'Unsupported BinOp {type(node.op).__name__}'
+            )
 
     def visit_If(self, node):
         self.visit(node.test)
