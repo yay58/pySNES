@@ -29,6 +29,23 @@ class PythonTo6502:
     def visit_Constant(self, node):
         return node.value
 
+    def visit_Compare(self, node):
+        left = node.left
+        ops = node.ops
+        comparators = node.comparators
+        if len(ops) == 1 and len(comparators) == 1:
+            comparator = comparators[0]
+
+            if isinstance(left, ast.Name) and isinstance(
+                comparator, ast.Constant
+            ):
+                self.output.append(f'LDA {left.id}')
+                self.output.append(f'CMP #{comparator.n}')
+            else:
+                raise NotImplementedError('Unsupported comparison')
+        else:
+            raise NotImplementedError('Unsupported comparison')
+
     def visit_Module(self, node):
         for stmt in node.body:
             self.visit(stmt)
