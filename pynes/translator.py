@@ -187,6 +187,45 @@ class PythonTo6502:
         else:
             raise NotImplementedError(f'No loop to break')
 
+    def visit_FunctionDef(self, node):
+        function_name = node.name
+        self.output.append(f'{function_name}:')
+
+        # Function prologue (stack frame setup)
+        # self.output.append("PHA")  # Push accumulator onto the stack
+        # self.output.append("TXA")  # Transfer X register to accumulator
+        # self.output.append("PHA")  # Push accumulator onto the stack
+        # self.output.append("TYA")  # Transfer Y register to accumulator
+        # self.output.append("PHA")  # Push accumulator onto the stack
+        # self.output.append("TSX")  # Transfer stack pointer to X register
+
+        # Function body
+        for stmt in node.body:
+            self.visit(stmt)
+
+        # Function epilogue (return)
+        # self.output.append("PLA")  # Pop accumulator from the stack
+        # self.output.append("TAY")  # Transfer accumulator to Y register
+        # self.output.append("PLA")  # Pop accumulator from the stack
+        # self.output.append("TAX")  # Transfer accumulator to X register
+        # self.output.append("PLA")  # Pop accumulator from the stack
+        self.output.append('RTS')  # Return from subroutine
+
+    def visit_Return(self, node):
+        # Generate code for return statement
+        return_value = self.visit(node.value)
+        self.output.append(f'LDA {return_value}')  # Load return value
+        # self.output.append("RTS")
+
+    def visit_Call(self, node):
+        function_name = node.func.id
+        # if node.args:
+        #     args = ", ".join([self.visit(arg) for arg in node.args])
+        # else:
+        #     args = ""
+        self.output.append(f'JSR {function_name}')  # Jump to subroutine
+        # return args
+
     def _generate_label(self):
         label = f'label_{self.label_count}'
         self.label_count += 1
