@@ -63,23 +63,26 @@ class PythonTo6502:
             var_value = f'#{node.value.value}'
         elif isinstance(node.value, ast.Name):
             var_value = node.value.id
-
         if var_value is not None:
             self.output.append(f'LDA {var_value}')
         self.output.append(f'STA {var_name}')
 
+    @debug_comment
     def visit_AugAssign(self, node):
         var_name = node.target.id
-        value = self.visit(node.value)
+        if isinstance(node.value, ast.Constant):
+            var_value = f'#{node.value.value}'
+        elif isinstance(node.value, ast.Name):
+            var_value = node.value.id
         if isinstance(node.op, ast.Add):
             self.output.append(f'LDA {var_name}')
             self.output.append('CLC')
-            self.output.append(f'ADC #{value}')
+            self.output.append(f'ADC {var_value}')
             self.output.append(f'STA {var_name}')
         elif isinstance(node.op, ast.Sub):
             self.output.append(f'LDA {var_name}')
             self.output.append('SEC')
-            self.output.append(f'SBC #{value}')
+            self.output.append(f'SBC {var_value}')
             self.output.append(f'STA {var_name}')
 
     def visit_BinOp(self, node):
