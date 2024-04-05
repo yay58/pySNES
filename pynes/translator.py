@@ -1,4 +1,14 @@
 import ast
+from functools import wraps
+
+
+def debug_comment(func):
+    @wraps(func)
+    def wrap_visit(self, node):
+        self.comment(node)
+        return func(self, node)
+
+    return wrap_visit
 
 
 class PythonTo6502:
@@ -6,6 +16,7 @@ class PythonTo6502:
         self.output = []
         self.label_count = 0
         self.context_loop_end_label = None
+        self.debug_comment = True
 
     def translate(self, python_code):
         # Parse Python code into an AST
@@ -16,6 +27,13 @@ class PythonTo6502:
 
         # Return the generated assembly code
         return '\n'.join(self.output)
+
+    def comment(self, node):
+        if not self.debug_comment:
+            return
+        code = ast.unparse(node).split('\n')
+        for line in code:
+            self.output.append(f'; {line}')
 
     def visit(self, node):
         method_name = f'visit_{type(node).__name__}'
@@ -54,6 +72,7 @@ class PythonTo6502:
         for stmt in node.body:
             self.visit(stmt)
 
+    @debug_comment
     def visit_Assign(self, node):
         # Handle variable assignment
         var_name = node.targets[0].id
@@ -122,7 +141,9 @@ class PythonTo6502:
                 f'Unsupported BinOp {type(node.op).__name__}'
             )
 
+    @debug_comment
     def visit_If(self, node):
+        self.comment(node.test)
         self.visit(node.test)
         true_label = self._generate_label()
         end_label = self._generate_label()
@@ -143,10 +164,12 @@ class PythonTo6502:
         else:
             raise NotImplementedError('Multiple operators not supported')
         for stmt in node.orelse:
+            self.comment(stmt)
             self.visit(stmt)
         self.output.append(f'JMP {end_label}')
         self.output.append(f'{true_label}:')
         for stmt in node.body:
+            self.comment(stmt)
             self.visit(stmt)
         self.output.append(f'{end_label}:')
         self.output.append('NOP')   # TODO: remove this NOP
