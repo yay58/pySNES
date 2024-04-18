@@ -1,6 +1,6 @@
 import ast
 import inspect
-from pynes.translator import PythonTo6502
+from pynes.translator import PythonTo6502, VarTable
 from nesasm.compiler import lexical, semantic, syntax, Cartridge
 from nesasm.tests.bridge import Py65CPUBridge
 
@@ -48,27 +48,13 @@ class AssertFilter(ast.NodeTransformer):
         return self.generic_visit(node)
 
 
-def attach_test(self, code_tree, asserts_tree):
+def attach_test(code_tree, asserts_tree):
     def test(self):
-        # opcodes = self.compile()
-        translator = PythonTo6502()
-        asm_code = translator.translate(code_tree)
-        print(asm_code)
-        start_addr = 0xC000
-        cart = Cartridge()
-        cart.set_org(start_addr)
-        labels = dict(var_q=0, var_w=1, var_e=2)
-        opcodes = semantic(
-            syntax(lexical(asm_code)),
-            False,
-            cart=cart,
-            labels=labels,
-        )
+        opcodes = self._compile(code_tree)
         self._execute(opcodes)
         context = {'self': self}
-        for label, address in labels.items():
-            context[label] = self.cpu.memory_fetch(address)
-        print(context)
+        for v in self.vars.values():
+            context[v.name] = self.cpu.memory_fetch(v.address)
         executable = compile(asserts_tree, '<string>', 'exec')
         exec(executable, {}, context)
 
@@ -93,9 +79,12 @@ class MetaNESTest(type):
             self.cpu = Py65CPUBridge()
 
         def _compile(self, code_tree, labels=None):
-            if labels is None:
-                labels = dict(var_q=0, var_w=1, var_e=2)
+            vartable = VarTable()
             translator = PythonTo6502()
+            self.vars = vartable.locate(code_tree)
+            self.labels = {}
+            for var in self.vars.values():
+                self.labels[var.label] = var.address
             asm_code = translator.translate(code_tree)
             start_addr = 0xC000
             cart = Cartridge()
@@ -104,7 +93,7 @@ class MetaNESTest(type):
                 syntax(lexical(asm_code)),
                 False,
                 cart=cart,
-                labels=labels,
+                labels=self.labels,
             )
 
         def _execute(self, opcodes):
@@ -118,9 +107,15 @@ class MetaNESTest(type):
             while self.cpu.cpu.pc < stop_addr:
                 self.cpu.execute()
 
+        def _run_asserts(self, asserts_tree):
+            executable = compile(asserts_tree, '<string>', 'exec')
+            context = {'self': self}
+            exec(executable, {}, context)
+
         setattr(klass, 'setUp', setUp)
         setattr(klass, '_compile', _compile)
         setattr(klass, '_execute', _execute)
+        setattr(klass, '_run_asserts', _run_asserts)
 
         for test in tests:
             method = getattr(klass, test)
@@ -132,6 +127,59 @@ class MetaNESTest(type):
             ast.fix_missing_locations(code_tree)
             asserts_tree = filter_assert.visit(ast.parse(code))
             ast.fix_missing_locations(asserts_tree)
-            setattr(klass, test, attach_test(klass, code_tree, asserts_tree))
+            setattr(klass, test, attach_test(code_tree, asserts_tree))
+
+        return klass
+
+
+def gen_var_test(code_tree, asserts_tree):
+    def test(self):
+        self.vars = self._get_vars(code_tree)
+        self._run_asserts(asserts_tree)
+
+    return test
+
+
+class MetaVarTableTest(type):
+    def __new__(cls, name, bases, dct):
+        klass = super().__new__(cls, name, bases, dct)
+
+        tests = [
+            method_name
+            for method_name in dir(klass)
+            if callable(getattr(klass, method_name))
+            and method_name.startswith('test_')
+        ]
+
+        filter_code = CodeFilter()
+        filter_assert = AssertFilter()
+
+        def setUp(self):
+            self.vars = {}
+
+        def _get_vars(self, code_tree, labels=None):
+            vartable = VarTable()
+            return vartable.locate(code_tree)
+
+        def _run_asserts(self, asserts_tree):
+            executable = compile(asserts_tree, '<string>', 'exec')
+            context = {'self': self}
+            exec(executable, {}, context)
+
+        setattr(klass, 'setUp', setUp)
+        setattr(klass, '_get_vars', _get_vars)
+        setattr(klass, '_run_asserts', _run_asserts)
+
+        for test in tests:
+            method = getattr(klass, test)
+            lines = inspect.getsourcelines(method)
+            code = ''
+            for line in lines[0]:
+                code += line[4:]
+            code_tree = filter_code.visit(ast.parse(code))
+            ast.fix_missing_locations(code_tree)
+            asserts_tree = filter_assert.visit(ast.parse(code))
+            ast.fix_missing_locations(asserts_tree)
+            setattr(klass, test, gen_var_test(code_tree, asserts_tree))
 
         return klass
