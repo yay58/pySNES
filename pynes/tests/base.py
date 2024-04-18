@@ -118,10 +118,11 @@ class MetaNESTest(type):
             while self.cpu.cpu.pc < stop_addr:
                 self.cpu.execute()
 
+        setattr(klass, 'setUp', setUp)
+        setattr(klass, '_compile', _compile)
+        setattr(klass, '_execute', _execute)
+
         for test in tests:
-            setattr(klass, 'setUp', setUp)
-            setattr(klass, '_compile', _compile)
-            setattr(klass, '_execute', _execute)
             method = getattr(klass, test)
             lines = inspect.getsourcelines(method)
             code = ''
