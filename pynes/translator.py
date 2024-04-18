@@ -11,6 +11,52 @@ def debug_comment(func):
     return wrap_visit
 
 
+class Ident:
+    def __init__(self, name):
+        self.name = name
+        self.assigns = 0
+        self.address = None
+
+    @property
+    def label(self):
+        return self.name
+
+
+class VarTable(ast.NodeVisitor):
+    def __init__(self):
+        self.vars = {}
+
+    def get_var(self, name):
+        if name not in self.vars:
+            self.vars[name] = Ident(name)
+        return self.vars[name]
+
+    def visit_Name(self, node: ast.Name):
+        self.get_var(node.id)
+        # return super().visit_Assign(node)
+
+    def visit_Assign(self, node: ast.Assign):
+        if len(node.targets) == 1:
+            name = node.targets[0].id
+            self.get_var(name).assigns += 1
+        else:
+            raise NotImplementedError()
+        # return super().visit_Assign(node)
+
+    def visit_AugAssign(self, node: ast.AugAssign):
+        self.get_var(node.target.id).assigns += 1
+
+    def locate(self, python_code):
+        self.vars = {}
+        tree = ast.parse(python_code)
+        self.generic_visit(tree)
+        address = 0x00
+        for name, value in self.vars.items():
+            value.address = address
+            address += 1
+        return self.vars
+
+
 class PythonTo6502:
     def __init__(self):
         self.output = []
