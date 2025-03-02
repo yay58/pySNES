@@ -268,9 +268,24 @@ class PythonTo6502:
             elif isinstance(op, ast.NotEq):
                 self.output.append(f'BNE {true_label}')
             elif isinstance(op, ast.Lt):
-                self.output.append(f'BMI {true_label}')
+                self.output.append(
+                    f'BCC {true_label}'
+                )  # Branch if carry clear (less than)
             elif isinstance(op, ast.Gt):
-                self.output.append(f'BPL {true_label}')
+                self.output.append(f'BEQ skip_{true_label}')  # Skip if equal
+                self.output.append(
+                    f'BCS {true_label}'
+                )  # Branch if carry set (greater than or equal)
+                self.output.append(f'skip_{true_label}:')
+            elif isinstance(op, ast.GtE):
+                self.output.append(
+                    f'BCS {true_label}'
+                )  # Branch if carry set (greater than or equal)
+            elif isinstance(op, ast.LtE):
+                self.output.append(
+                    f'BCC {true_label}'
+                )  # Branch if carry clear (less than)
+                self.output.append(f'BEQ {true_label}')  # Also branch if equal
             else:
                 raise NotImplementedError(
                     f'Operators not supported {type(op).__name__}'
