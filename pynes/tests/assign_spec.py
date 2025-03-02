@@ -83,7 +83,6 @@ class AssignSpec:
 
     #     self.assertEqual(var_e, 6)
 
-
     # def test_assign_multiple(self):
     #     var_q = var_w = 22
 

@@ -200,42 +200,46 @@ class IfSpec:
     #     self.assertEqual(var_e, 2)
 
     # def test_if_true(self):
-    #     a, b = 1
-    #     c = 2
+    #     var_a, var_b = 1
+    #     var_c = 2
 
     #     if True:
-    #         c = a
+    #         var_c = var_a
+
+    #     self.assertEqual(var_a, var_c)
+    #     self.assertNotEqual(var_a, var_b)
+    #     self.assertEqual(var_c, 1)
 
     # def test_if_false(self):
-    #     a, b = 1
-    #     c = 2
+    #     var_a, var_b = 1
+    #     var_c = 2
 
     #     if False:
-    #         c = a
+    #         var_c = var_a
 
-    #     self.assertEqual(a, 1)
-    #     self.assertEqual(a, b)
-    #     self.assertEqual(c, 2)
+    #     self.assertEqual(var_a, 1)
+    #     self.assertEqual(var_a, var_b)
+    #     self.assertEqual(var_c, 2)
 
     # def test_if_greater_than_2(self):
-    #     a = 1
-    #     b = 2
-    #     c = 0
+    #     var_a = 1
+    #     var_b = 2
+    #     var_c = 0
 
-    #     if a > b:
-    #         c = a
+    #     if var_a > var_b:
+    #         var_c = var_a
 
-    #     self.assertEqual(c, 0)
+    #     self.assertEqual(var_c, 0)
 
     # def test_if_greater_than_else(self):
-    #     a = 2
-    #     b = 1
-    #     c = 0
+    #     var_a = 2
+    #     var_b = 1
+    #     var_c = 0
 
-    #     if a > b:
-    #         c = a
+    #     if var_a > var_b:
+    #         var_c = var_a
     #     else:
-    #         c = b
+    #         var_c = var_b
 
-    #     self.assertEqual(c, a)
-    #     self.assertEqual(c, 2)
+    #     self.assertEqual(var_c, var_a)
+    #     self.assertEqual(var_c, 2)
