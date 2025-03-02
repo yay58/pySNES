@@ -92,7 +92,14 @@ class PythonTo6502:
         )
 
     def visit_Name(self, node):
-        pass
+        # Handle memory location access
+        if node.id.startswith('mem_'):
+            addr = int(node.id.split('_')[1], 16)
+            if addr < 0x100:  # Zero page
+                self.output.append(f'LDA ${addr:02X}')
+            else:  # Absolute addressing
+                self.output.append(f'LDA ${addr:04X}')
+        return node.id
 
     def visit_Constant(self, node):
         return node.value
@@ -115,14 +122,34 @@ class PythonTo6502:
             raise NotImplementedError('Unsupported comparison')
 
     def visit_Module(self, node):
+        # Set parent references for the AST
+        for stmt in ast.walk(node):
+            for child in ast.iter_child_nodes(stmt):
+                setattr(child, '_parent', stmt)
+        # Visit all statements
         for stmt in node.body:
             self.visit(stmt)
 
     @debug_comment
     def visit_Assign(self, node):
         # Handle variable assignment
-        var_name = node.targets[0].id
+        target = node.targets[0]
+        var_name = target.id
         var_value = None
+
+        # Handle memory location assignment
+        if var_name.startswith('mem_'):
+            addr = int(var_name.split('_')[1], 16)
+            if isinstance(node.value, ast.Name):
+                # Load from variable then store to memory
+                self.output.append(f'LDA {node.value.id}')
+                if addr < 0x100:  # Zero page
+                    self.output.append(f'STA ${addr:02X}')
+                else:  # Absolute addressing
+                    self.output.append(f'STA ${addr:04X}')
+            return
+
+        # Handle regular variable assignment
         self.visit(node.value)
         if isinstance(node.value, ast.Constant):
             var_value = f'#{node.value.value}'
@@ -130,7 +157,7 @@ class PythonTo6502:
             var_value = node.value.id
         if var_value is not None:
             self.output.append(f'LDA {var_value}')
-        self.output.append(f'STA {var_name}')
+            self.output.append(f'STA {var_name}')
 
     @debug_comment
     def visit_AugAssign(self, node):
@@ -162,6 +189,13 @@ class PythonTo6502:
             right_value = right.id
         elif isinstance(right, ast.Constant):
             right_value = f'#{right.value}'
+
+        # Get parent context to find where to store the result
+        parent = getattr(node, '_parent', None)
+        target_var = None
+        if isinstance(parent, ast.Assign):
+            target_var = parent.targets[0].id
+
         if isinstance(node.op, ast.Add):
             self.output.append(f'LDA {left_value}')
             self.output.append('CLC')
@@ -178,14 +212,34 @@ class PythonTo6502:
             self.output.append(f'ORA {right_value}')
         elif isinstance(node.op, ast.LShift):
             self.output.append(f'LDA {left_value}')
-            self.output.append('ASL A')
+            # For each shift count, we'll ASL (Arithmetic Shift Left)
+            if isinstance(right, ast.Constant):
+                for _ in range(right.value):
+                    self.output.append('ASL A')
+            else:
+                self.output.append(f'LDX {right_value}')
+                shift_loop = self._generate_label()
+                self.output.append(f'{shift_loop}:')
+                self.output.append('ASL A')
+                self.output.append('DEX')
+                self.output.append(f'BNE {shift_loop}')
         elif isinstance(node.op, ast.RShift):
             self.output.append(f'LDA {left_value}')
-            self.output.append('LSR A')
-        else:
-            raise NotImplementedError(
-                f'Unsupported BinOp {type(node.op).__name__}'
-            )
+            # For each shift count, we'll LSR (Logical Shift Right)
+            if isinstance(right, ast.Constant):
+                for _ in range(right.value):
+                    self.output.append('LSR A')
+            else:
+                self.output.append(f'LDX {right_value}')
+                shift_loop = self._generate_label()
+                self.output.append(f'{shift_loop}:')
+                self.output.append('LSR A')
+                self.output.append('DEX')
+                self.output.append(f'BNE {shift_loop}')
+
+        # Store the result if we're in an assignment context
+        if target_var:
+            self.output.append(f'STA {target_var}')
 
     @debug_comment
     def visit_If(self, node):
@@ -257,7 +311,7 @@ class PythonTo6502:
         if self.context_loop_end_label is not None:
             self.output.append(f'JMP {self.context_loop_end_label}')
         else:
-            raise NotImplementedError(f'No loop to break')
+            raise NotImplementedError('No loop to break')
 
     def _generate_label(self):
         label = f'label_{self.label_count}'
