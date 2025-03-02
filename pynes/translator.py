@@ -210,6 +210,9 @@ class PythonTo6502:
         elif isinstance(node.op, ast.BitOr):
             self.output.append(f'LDA {left_value}')
             self.output.append(f'ORA {right_value}')
+        elif isinstance(node.op, ast.BitXor):
+            self.output.append(f'LDA {left_value}')
+            self.output.append(f'EOR {right_value}')
         elif isinstance(node.op, ast.LShift):
             self.output.append(f'LDA {left_value}')
             # For each shift count, we'll ASL (Arithmetic Shift Left)

@@ -61,3 +61,17 @@ class BitwiseSpec:
         var_e = var_q >> var_w
 
         self.assertEqual(var_e, 4)
+
+    def test_logical_5_xor_3_with_vars(self):
+        var_q = 5  # 0b0101
+        var_w = 3  # 0b0011
+        var_e = var_q ^ var_w  # Should be 0b0110 = 6
+
+        self.assertEqual(var_e, 6)
+
+    def test_logical_12_xor_10_with_vars(self):
+        var_q = 12  # 0b1100
+        var_w = 10  # 0b1010
+        var_e = var_q ^ var_w  # Should be 0b0110 = 6
+
+        self.assertEqual(var_e, 6)
