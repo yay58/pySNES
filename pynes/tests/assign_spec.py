@@ -95,3 +95,25 @@ class AssignSpec:
 
     #     self.assertEqual(var_q, 30)
     #     self.assertEqual(var_w, 31)
+
+    def test_increment_direct(self):
+        var_q = 41
+        var_q += 1  # This should use INC instead of ADC
+        self.assertEqual(var_q, 42)
+
+    def test_decrement_direct(self):
+        var_q = 43
+        var_q -= 1  # This should use DEC instead of SBC
+        self.assertEqual(var_q, 42)
+
+    def test_increment_multiple(self):
+        var_q = 40
+        var_q += 1  # First increment
+        var_q += 1  # Second increment
+        self.assertEqual(var_q, 42)
+
+    def test_decrement_multiple(self):
+        var_q = 44
+        var_q -= 1  # First decrement
+        var_q -= 1  # Second decrement
+        self.assertEqual(var_q, 42)

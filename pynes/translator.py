@@ -163,19 +163,30 @@ class PythonTo6502:
     def visit_AugAssign(self, node):
         var_name = node.target.id
         if isinstance(node.value, ast.Constant):
-            var_value = f'#{node.value.value}'
+            var_value = node.value.value
+            var_value_str = f'#{var_value}'
         elif isinstance(node.value, ast.Name):
-            var_value = node.value.id
+            var_value = None
+            var_value_str = node.value.id
+
         if isinstance(node.op, ast.Add):
-            self.output.append(f'LDA {var_name}')
-            self.output.append('CLC')
-            self.output.append(f'ADC {var_value}')
-            self.output.append(f'STA {var_name}')
+            if isinstance(node.value, ast.Constant) and var_value == 1:
+                # Use INC for += 1
+                self.output.append(f'INC {var_name}')
+            else:
+                self.output.append(f'LDA {var_name}')
+                self.output.append('CLC')
+                self.output.append(f'ADC {var_value_str}')
+                self.output.append(f'STA {var_name}')
         elif isinstance(node.op, ast.Sub):
-            self.output.append(f'LDA {var_name}')
-            self.output.append('SEC')
-            self.output.append(f'SBC {var_value}')
-            self.output.append(f'STA {var_name}')
+            if isinstance(node.value, ast.Constant) and var_value == 1:
+                # Use DEC for -= 1
+                self.output.append(f'DEC {var_name}')
+            else:
+                self.output.append(f'LDA {var_name}')
+                self.output.append('SEC')
+                self.output.append(f'SBC {var_value_str}')
+                self.output.append(f'STA {var_name}')
 
     def visit_BinOp(self, node):
         # Handle binary operations
