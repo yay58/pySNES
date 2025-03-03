@@ -16,6 +16,7 @@ class Ident:
         self.name = name
         self.assigns = 0
         self.address = None
+        self.initial_value = None
 
     @property
     def label(self):
@@ -38,7 +39,10 @@ class VarTable(ast.NodeVisitor):
     def visit_Assign(self, node: ast.Assign):
         if len(node.targets) == 1:
             name = node.targets[0].id
-            self.get_var(name).assigns += 1
+            var = self.get_var(name)
+            var.assigns += 1
+            if isinstance(node.value, ast.Constant):
+                var.initial_value = node.value.value
         else:
             raise NotImplementedError()
         # return super().visit_Assign(node)
@@ -111,13 +115,21 @@ class PythonTo6502:
         if len(ops) == 1 and len(comparators) == 1:
             comparator = comparators[0]
 
-            if isinstance(left, ast.Name) and isinstance(
-                comparator, ast.Constant
-            ):
-                self.output.append(f'LDA {left.id}')
-                self.output.append(f'CMP #{comparator.n}')
+            if isinstance(left, ast.Name):
+                if isinstance(comparator, ast.Constant):
+                    self.output.append(f'LDA {left.id}')
+                    self.output.append(f'CMP #{comparator.n}')
+                elif isinstance(comparator, ast.Name):
+                    self.output.append(f'LDA {left.id}')
+                    self.output.append(f'CMP {comparator.id}')
+                else:
+                    raise NotImplementedError(
+                        'Unsupported comparison value type'
+                    )
             else:
-                raise NotImplementedError('Unsupported comparison')
+                raise NotImplementedError(
+                    'Unsupported comparison left operand type'
+                )
         else:
             raise NotImplementedError('Unsupported comparison')
 
@@ -135,7 +147,6 @@ class PythonTo6502:
         # Handle variable assignment
         target = node.targets[0]
         var_name = target.id
-        var_value = None
 
         # Handle memory location assignment
         if var_name.startswith('mem_'):
@@ -149,15 +160,16 @@ class PythonTo6502:
                     self.output.append(f'STA ${addr:04X}')
             return
 
-        # Handle regular variable assignment
-        self.visit(node.value)
+        # Load the value into the accumulator
         if isinstance(node.value, ast.Constant):
-            var_value = f'#{node.value.value}'
+            self.output.append(f'LDA #{node.value.value}')
         elif isinstance(node.value, ast.Name):
-            var_value = node.value.id
-        if var_value is not None:
-            self.output.append(f'LDA {var_value}')
-            self.output.append(f'STA {var_name}')
+            self.output.append(f'LDA {node.value.id}')
+        else:
+            # Visit the value first - this handles IfExp and other expressions
+            self.visit(node.value)
+        # Store the result in the target variable
+        self.output.append(f'STA {var_name}')
 
     @debug_comment
     def visit_AugAssign(self, node):
@@ -256,11 +268,57 @@ class PythonTo6502:
             self.output.append(f'STA {target_var}')
 
     @debug_comment
+    def visit_BoolOp(self, node):
+        """Handle boolean operations like AND/OR"""
+        if isinstance(node.op, ast.And):
+            # For AND, we need all conditions to be true
+            false_label = self._generate_label()
+            for value in node.values:
+                if isinstance(value, ast.Compare):
+                    self.visit(value)
+                    # For each comparison, if it's false, skip to end
+                    if len(value.ops) == 1:
+                        op = value.ops[0]
+                        if isinstance(op, ast.Eq):
+                            self.output.append(f'BNE {false_label}')
+                        elif isinstance(op, ast.NotEq):
+                            self.output.append(f'BEQ {false_label}')
+                        elif isinstance(op, ast.Lt):
+                            self.output.append(f'BCS {false_label}')
+                        elif isinstance(op, ast.Gt):
+                            self.output.append(f'BCC {false_label}')
+                        elif isinstance(op, ast.GtE):
+                            self.output.append(f'BCC {false_label}')
+                        elif isinstance(op, ast.LtE):
+                            self.output.append(f'BCS {false_label}')
+            return false_label
+        else:
+            raise NotImplementedError('Only AND operator is supported')
+
+    @debug_comment
     def visit_If(self, node):
         self.comment(node.test)
-        self.visit(node.test)
         true_label = self._generate_label()
         end_label = self._generate_label()
+
+        # Handle boolean operations (AND/OR)
+        if isinstance(node.test, ast.BoolOp):
+            false_label = self.visit(node.test)
+            # Execute true block if all conditions passed
+            for stmt in node.body:
+                self.comment(stmt)
+                self.visit(stmt)
+            self.output.append(f'JMP {end_label}')
+            # Handle false case
+            self.output.append(f'{false_label}:')
+            for stmt in node.orelse:
+                self.comment(stmt)
+                self.visit(stmt)
+            self.output.append(f'{end_label}:')
+            return
+
+        # Handle simple comparisons
+        self.visit(node.test)
         if len(node.test.ops) == 1:
             op = node.test.ops[0]
             if isinstance(op, ast.Eq):
@@ -306,41 +364,134 @@ class PythonTo6502:
     def visit_While(self, node):
         # Generate code for while loop
         start_label = self._generate_label()
-        true_label = self._generate_label()
         end_label = self._generate_label()
+
+        # Start of loop body
         self.output.append(f'{start_label}:')
-        self.visit(node.test)
-        if len(node.test.ops) == 1:
-            op = node.test.ops[0]
-            if isinstance(op, ast.Eq):
-                self.output.append(f'BEQ {true_label}')
-            elif isinstance(op, ast.NotEq):
-                self.output.append(f'BNE {true_label}')
-            elif isinstance(op, ast.Lt):
-                self.output.append(f'BMI {true_label}')
-            elif isinstance(op, ast.Gt):
-                self.output.append(f'BPL {true_label}')
+
+        # Check condition
+        if isinstance(node.test, ast.Compare):
+            left = node.test.left
+            ops = node.test.ops
+            comparators = node.test.comparators
+
+            if len(ops) == 1 and len(comparators) == 1:
+                comparator = comparators[0]
+                op = ops[0]
+
+                # Load left value
+                if isinstance(left, ast.Name):
+                    self.output.append(f'LDA {left.id}')
+                elif isinstance(left, ast.Constant):
+                    self.output.append(f'LDA #{left.n}')
+
+                # Compare with right value
+                if isinstance(comparator, ast.Constant):
+                    self.output.append(f'CMP #{comparator.n}')
+                elif isinstance(comparator, ast.Name):
+                    self.output.append(f'CMP {comparator.id}')
+
+                # Branch to end if condition is false
+                if isinstance(op, ast.Lt):
+                    self.output.append(f'BCS {end_label}')
+                elif isinstance(op, ast.Gt):
+                    # For A > M, we need A > M which means A >= M AND A != M
+                    # Branch to end if A <= M
+                    self.output.append(
+                        f'BCC {end_label}'
+                    )  # Branch to end if A < M
+                    self.output.append(
+                        f'BEQ {end_label}'
+                    )  # Branch to end if A = M
+                elif isinstance(op, ast.GtE):
+                    self.output.append(f'BCC {end_label}')
+                elif isinstance(op, ast.LtE):
+                    self.output.append(f'BCS {end_label}')
+                elif isinstance(op, ast.Eq):
+                    self.output.append(f'BNE {end_label}')
+                elif isinstance(op, ast.NotEq):
+                    self.output.append(f'BEQ {end_label}')
             else:
-                raise NotImplementedError(
-                    f'Operators not supported {type(op).__name__}'
-                )
+                raise NotImplementedError('Multiple operators not supported')
         else:
-            raise NotImplementedError('Multiple operators not supported')
-        self.output.append(f'JMP {end_label}')
-        self.output.append(f'{true_label}:')
+            raise NotImplementedError('Only comparisons supported in while')
+
+        # Loop body
         self.context_loop_end_label = end_label
         for stmt in node.body:
             self.visit(stmt)
         self.context_loop_end_label = None
+
+        # Jump back to start to check condition again
         self.output.append(f'JMP {start_label}')
+
+        # End of loop
         self.output.append(f'{end_label}:')
-        self.output.append('NOP')   # TODO: remove this NOP
+        self.output.append('NOP')  # No-op instead of BRK
 
     def visit_Break(self, node):
         if self.context_loop_end_label is not None:
             self.output.append(f'JMP {self.context_loop_end_label}')
         else:
             raise NotImplementedError('No loop to break')
+
+    def visit_IfExp(self, node):
+        """Handle ternary operators like: x = 2 if y == 1 else 3"""
+        end_label = self._generate_label()
+        false_label = self._generate_label()
+
+        # Visit the test condition
+        if isinstance(node.test, ast.Compare):
+            left = node.test.left
+            ops = node.test.ops
+            comparators = node.test.comparators
+
+            if len(ops) == 1 and len(comparators) == 1:
+                comparator = comparators[0]
+                op = ops[0]
+
+                # Load left value
+                if isinstance(left, ast.Name):
+                    self.output.append(f'LDA {left.id}')
+                elif isinstance(left, ast.Constant):
+                    self.output.append(f'LDA #{left.n}')
+
+                # Compare with right value
+                if isinstance(comparator, ast.Constant):
+                    self.output.append(f'CMP #{comparator.n}')
+                elif isinstance(comparator, ast.Name):
+                    self.output.append(f'CMP {comparator.id}')
+
+                # Branch based on comparison
+                if isinstance(op, ast.Eq):
+                    self.output.append(f'BEQ {false_label}')
+                elif isinstance(op, ast.NotEq):
+                    self.output.append(f'BNE {false_label}')
+                elif isinstance(op, ast.Lt):
+                    self.output.append(f'BCC {false_label}')
+                elif isinstance(op, ast.Gt):
+                    self.output.append(f'BCS {false_label}')
+                elif isinstance(op, ast.GtE):
+                    self.output.append(f'BCC {false_label}')
+                elif isinstance(op, ast.LtE):
+                    self.output.append(f'BCS {false_label}')
+
+        # False case (condition not met)
+        if isinstance(node.orelse, ast.Constant):
+            self.output.append(f'LDA #{node.orelse.n}')
+        elif isinstance(node.orelse, ast.Name):
+            self.output.append(f'LDA {node.orelse.id}')
+        self.output.append(f'JMP {end_label}')
+
+        # True case (condition met)
+        self.output.append(f'{false_label}:')
+        if isinstance(node.body, ast.Constant):
+            self.output.append(f'LDA #{node.body.n}')
+        elif isinstance(node.body, ast.Name):
+            self.output.append(f'LDA {node.body.id}')
+
+        # End of if expression
+        self.output.append(f'{end_label}:')
 
     def _generate_label(self):
         label = f'label_{self.label_count}'

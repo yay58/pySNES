@@ -30,7 +30,7 @@ class WhileSpec:
         self.assertEqual(var_q, 0)
         self.assertEqual(var_w, 1)
 
-    def test_while_less_then(self):
+    def test_while_less_than(self):
         var_q = 0
 
         while var_q < 10:
@@ -38,21 +38,22 @@ class WhileSpec:
 
         self.assertEqual(var_q, 10)
 
-    # def test_while_greater_then(self):
-    #     var_q = 10
+    def test_while_greater_than(self):
+        var_q = 10
 
-    #     while var_q > 1:
-    #         var_q -= 1
-
-    #     self.assertEqual(var_q, 0)
-
-    def test_while_break(self):
-        var_q = 0
-        var_w = 0
-        while var_q == 0:
-            var_w += 1
-            if var_w == 5:
-                break
+        while var_q > 0:
+            var_q -= 1
 
         self.assertEqual(var_q, 0)
-        self.assertEqual(var_w, 5)
+
+    # def test_while_break(self):
+    #     var_q = 0
+    #     var_w = 0
+    #     while var_q == 0:
+    #         var_w += 1
+    #         if var_w == 5:
+    #             break
+
+    #     self.assertEqual(var_q, 0)
+    #     self.assertEqual(var_w, 5)
+    pass

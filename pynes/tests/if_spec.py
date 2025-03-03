@@ -180,24 +180,24 @@ class IfSpec:
 
     #     self.assertEqual(var_e, 4)
 
-    # def test_if_assign(self):
-    #     var_q = 1
+    def test_if_assign(self):
+        var_q = 1
 
-    #     var_w = 2 if var_q == 1 else 3
+        var_w = 2 if var_q == 1 else 3
 
-    #     self.assertEqual(var_w, 2)
+        self.assertEqual(var_w, 2)
 
-    # def test_if_not_equal_assign_variable(self):
-    #     var_q = 1
-    #     var_w = 1
-    #     var_e = 2
+    def test_if_not_equal_assign_variable(self):
+        var_q = 1
+        var_w = 1
+        var_e = 2
 
-    #     if var_q != var_w:
-    #         var_e = var_w
+        if var_q != var_w:
+            var_e = var_w
 
-    #     self.assertNotEqual(var_e, var_q)
-    #     self.assertNotEqual(var_e, var_w)
-    #     self.assertEqual(var_e, 2)
+        self.assertNotEqual(var_e, var_q)
+        self.assertNotEqual(var_e, var_w)
+        self.assertEqual(var_e, 2)
 
     # def test_if_true(self):
     #     var_a, var_b = 1
