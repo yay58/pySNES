@@ -37,14 +37,21 @@ class VarTable(ast.NodeVisitor):
         # return super().visit_Assign(node)
 
     def visit_Assign(self, node: ast.Assign):
-        if len(node.targets) == 1:
-            name = node.targets[0].id
-            var = self.get_var(name)
-            var.assigns += 1
-            if isinstance(node.value, ast.Constant):
-                var.initial_value = node.value.value
-        else:
-            raise NotImplementedError()
+        # Handle single and multiple assignments
+        for target in node.targets:
+            if isinstance(target, ast.Tuple):
+                # Handle tuple unpacking
+                for elt in target.elts:
+                    name = elt.id
+                    var = self.get_var(name)
+                    var.assigns += 1
+            else:
+                # Handle single assignment
+                name = target.id
+                var = self.get_var(name)
+                var.assigns += 1
+                if isinstance(node.value, ast.Constant):
+                    var.initial_value = node.value.value
         # return super().visit_Assign(node)
 
     def visit_AugAssign(self, node: ast.AugAssign):
@@ -144,12 +151,10 @@ class PythonTo6502:
 
     @debug_comment
     def visit_Assign(self, node):
-        # Handle variable assignment
-        target = node.targets[0]
-        var_name = target.id
-
-        # Handle memory location assignment
-        if var_name.startswith('mem_'):
+        # Handle memory location assignment first
+        if not isinstance(node.targets[0], ast.Tuple) and node.targets[0].id.startswith('mem_'):
+            target = node.targets[0]
+            var_name = target.id
             addr = int(var_name.split('_')[1], 16)
             if isinstance(node.value, ast.Name):
                 # Load from variable then store to memory
@@ -160,7 +165,22 @@ class PythonTo6502:
                     self.output.append(f'STA ${addr:04X}')
             return
 
-        # Load the value into the accumulator
+        # Handle tuple unpacking
+        if isinstance(node.targets[0], ast.Tuple):
+            if isinstance(node.value, ast.Tuple):
+                # Unpack values one by one
+                for target, value in zip(node.targets[0].elts, node.value.elts):
+                    if isinstance(value, ast.Constant):
+                        self.output.append(f'LDA #{value.value}')
+                    elif isinstance(value, ast.Name):
+                        self.output.append(f'LDA {value.id}')
+                    else:
+                        # Visit the value first - this handles expressions
+                        self.visit(value)
+                    self.output.append(f'STA {target.id}')
+            return
+
+        # Handle regular assignments
         if isinstance(node.value, ast.Constant):
             self.output.append(f'LDA #{node.value.value}')
         elif isinstance(node.value, ast.Name):
@@ -168,18 +188,30 @@ class PythonTo6502:
         else:
             # Visit the value first - this handles IfExp and other expressions
             self.visit(node.value)
-        # Store the result in the target variable
-        self.output.append(f'STA {var_name}')
+
+        # Store the result in all target variables
+        for target in node.targets:
+            self.output.append(f'STA {target.id}')
 
     @debug_comment
     def visit_AugAssign(self, node):
         var_name = node.target.id
-        if isinstance(node.value, ast.Constant):
+
+        # Handle complex expressions in the value
+        if isinstance(node.value, ast.BinOp):
+            # Visit the binary operation first
+            self.visit(node.value)
+            # Store result in temp variable
+            self.output.append('STA temp_var')
+            var_value_str = 'temp_var'
+        elif isinstance(node.value, ast.Constant):
             var_value = node.value.value
             var_value_str = f'#{var_value}'
         elif isinstance(node.value, ast.Name):
             var_value = None
             var_value_str = node.value.id
+        else:
+            raise NotImplementedError(f'Unsupported value type in augmented assignment: {type(node.value)}')
 
         if isinstance(node.op, ast.Add):
             if isinstance(node.value, ast.Constant) and var_value == 1:
@@ -204,14 +236,32 @@ class PythonTo6502:
         # Handle binary operations
         left = node.left
         right = node.right
-        if isinstance(left, ast.Name):
+
+        # Handle nested binary operations on the left side
+        if isinstance(left, ast.BinOp):
+            self.visit(left)
+            # Store result in temp variable
+            self.output.append('STA temp_left')
+            left_value = 'temp_left'
+        elif isinstance(left, ast.Name):
             left_value = left.id
         elif isinstance(left, ast.Constant):
             left_value = f'#{left.value}'
-        if isinstance(right, ast.Name):
+        else:
+            raise NotImplementedError(f'Unsupported left operand type: {type(left)}')
+
+        # Handle nested binary operations on the right side
+        if isinstance(right, ast.BinOp):
+            self.visit(right)
+            # Store result in temp variable
+            self.output.append('STA temp_right')
+            right_value = 'temp_right'
+        elif isinstance(right, ast.Name):
             right_value = right.id
         elif isinstance(right, ast.Constant):
             right_value = f'#{right.value}'
+        else:
+            raise NotImplementedError(f'Unsupported right operand type: {type(right)}')
 
         # Get parent context to find where to store the result
         parent = getattr(node, '_parent', None)
@@ -219,22 +269,20 @@ class PythonTo6502:
         if isinstance(parent, ast.Assign):
             target_var = parent.targets[0].id
 
+        # Load left value and perform operation
+        self.output.append(f'LDA {left_value}')
+
         if isinstance(node.op, ast.Add):
-            self.output.append(f'LDA {left_value}')
             self.output.append('CLC')
             self.output.append(f'ADC {right_value}')
         elif isinstance(node.op, ast.Sub):
-            self.output.append(f'LDA {left_value}')
             self.output.append('SEC')
             self.output.append(f'SBC {right_value}')
         elif isinstance(node.op, ast.BitAnd):
-            self.output.append(f'LDA {left_value}')
             self.output.append(f'AND {right_value}')
         elif isinstance(node.op, ast.BitOr):
-            self.output.append(f'LDA {left_value}')
             self.output.append(f'ORA {right_value}')
         elif isinstance(node.op, ast.BitXor):
-            self.output.append(f'LDA {left_value}')
             self.output.append(f'EOR {right_value}')
         elif isinstance(node.op, ast.LShift):
             self.output.append(f'LDA {left_value}')
