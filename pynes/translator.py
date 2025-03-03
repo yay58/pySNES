@@ -152,7 +152,9 @@ class PythonTo6502:
     @debug_comment
     def visit_Assign(self, node):
         # Handle memory location assignment first
-        if not isinstance(node.targets[0], ast.Tuple) and node.targets[0].id.startswith('mem_'):
+        if not isinstance(node.targets[0], ast.Tuple) and node.targets[
+            0
+        ].id.startswith('mem_'):
             target = node.targets[0]
             var_name = target.id
             addr = int(var_name.split('_')[1], 16)
@@ -169,7 +171,9 @@ class PythonTo6502:
         if isinstance(node.targets[0], ast.Tuple):
             if isinstance(node.value, ast.Tuple):
                 # Unpack values one by one
-                for target, value in zip(node.targets[0].elts, node.value.elts):
+                for target, value in zip(
+                    node.targets[0].elts, node.value.elts
+                ):
                     if isinstance(value, ast.Constant):
                         self.output.append(f'LDA #{value.value}')
                     elif isinstance(value, ast.Name):
@@ -211,7 +215,9 @@ class PythonTo6502:
             var_value = None
             var_value_str = node.value.id
         else:
-            raise NotImplementedError(f'Unsupported value type in augmented assignment: {type(node.value)}')
+            raise NotImplementedError(
+                f'Unsupported value type in augmented assignment: {type(node.value)}'
+            )
 
         if isinstance(node.op, ast.Add):
             if isinstance(node.value, ast.Constant) and var_value == 1:
@@ -231,11 +237,175 @@ class PythonTo6502:
                 self.output.append('SEC')
                 self.output.append(f'SBC {var_value_str}')
                 self.output.append(f'STA {var_name}')
+        elif isinstance(node.op, ast.BitAnd):
+            # Handle augmented bitwise AND
+            self.output.append(f'LDA {var_name}')
+            self.output.append(f'AND {var_value_str}')
+            self.output.append(f'STA {var_name}')
+        elif isinstance(node.op, ast.BitOr):
+            # Handle augmented bitwise OR
+            self.output.append(f'LDA {var_name}')
+            self.output.append(f'ORA {var_value_str}')
+            self.output.append(f'STA {var_name}')
+        elif isinstance(node.op, ast.BitXor):
+            # Handle augmented bitwise XOR
+            self.output.append(f'LDA {var_name}')
+            self.output.append(f'EOR {var_value_str}')
+            self.output.append(f'STA {var_name}')
+        elif isinstance(node.op, ast.LShift):
+            # Handle augmented left shift
+            if isinstance(node.value, ast.Constant):
+                # For constant shifts, we can optimize by multiplying by 2^n
+                shift_amount = var_value  # Use the shift amount directly
+                self.output.append(f'LDA {var_name}')
+                # Multiply by shift_amount using repeated ASL
+                for _ in range(shift_amount):
+                    self.output.append('ASL A')
+                self.output.append(f'STA {var_name}')
+            else:
+                # For variable shifts, we need a loop
+                self.output.append(f'LDA {var_name}')
+                loop_label = f'shift_left_loop_{len(self.output)}'
+                end_label = f'shift_left_end_{len(self.output)}'
+                self.output.append(f'LDX {var_value_str}')
+                self.output.append(f'BEQ {end_label}')
+                self.output.append(f'{loop_label}:')
+                self.output.append('ASL A')
+                self.output.append('DEX')
+                self.output.append(f'BNE {loop_label}')
+                self.output.append(f'{end_label}:')
+                self.output.append(f'STA {var_name}')
+        elif isinstance(node.op, ast.RShift):
+            # Handle augmented right shift
+            if isinstance(node.value, ast.Constant):
+                # For constant shifts, we can optimize by dividing by 2^n
+                shift_amount = var_value  # Use the shift amount directly
+                self.output.append(f'LDA {var_name}')
+                # Divide by shift_amount using repeated LSR
+                for _ in range(shift_amount):
+                    self.output.append('LSR A')
+                self.output.append(f'STA {var_name}')
+            else:
+                # For variable shifts, we need a loop
+                self.output.append(f'LDA {var_name}')
+                loop_label = f'shift_right_loop_{len(self.output)}'
+                end_label = f'shift_right_end_{len(self.output)}'
+                self.output.append(f'LDX {var_value_str}')
+                self.output.append(f'BEQ {end_label}')
+                self.output.append(f'{loop_label}:')
+                self.output.append('LSR A')
+                self.output.append('DEX')
+                self.output.append(f'BNE {loop_label}')
+                self.output.append(f'{end_label}:')
+                self.output.append(f'STA {var_name}')
 
     def visit_BinOp(self, node):
         # Handle binary operations
+        if isinstance(node.op, ast.LShift):
+            # Visit the left operand first
+            self.visit(node.left)
+            # Store result in temp variable
+            self.output.append('STA temp_var')
+            # Visit the right operand
+            self.visit(node.right)
+            # Store shift amount in X register
+            self.output.append('TAX')
+            # Load value to shift
+            self.output.append('LDA temp_var')
+            # Perform shift
+            loop_label = f'shift_left_loop_{len(self.output)}'
+            end_label = f'shift_left_end_{len(self.output)}'
+            self.output.append(f'BEQ {end_label}')
+            self.output.append(f'{loop_label}:')
+            self.output.append('ASL A')
+            self.output.append('DEX')
+            self.output.append(f'BNE {loop_label}')
+            self.output.append(f'{end_label}:')
+        elif isinstance(node.op, ast.RShift):
+            # Visit the left operand first
+            self.visit(node.left)
+            # Store result in temp variable
+            self.output.append('STA temp_var')
+            # Visit the right operand
+            self.visit(node.right)
+            # Store shift amount in X register
+            self.output.append('TAX')
+            # Load value to shift
+            self.output.append('LDA temp_var')
+            # Perform shift
+            loop_label = f'shift_right_loop_{len(self.output)}'
+            end_label = f'shift_right_end_{len(self.output)}'
+            self.output.append(f'BEQ {end_label}')
+            self.output.append(f'{loop_label}:')
+            self.output.append('LSR A')
+            self.output.append('DEX')
+            self.output.append(f'BNE {loop_label}')
+            self.output.append(f'{end_label}:')
+        elif isinstance(node.op, ast.Add):
+            # Visit the left operand first
+            self.visit(node.left)
+            # Store result in temp variable
+            self.output.append('STA temp_var')
+            # Visit the right operand
+            self.visit(node.right)
+            # Add with carry
+            self.output.append('CLC')
+            self.output.append('ADC temp_var')
+
+    def visit_BinOp(self, node):
+        # Get the operands first
         left = node.left
         right = node.right
+
+        # Handle shift operations
+        if isinstance(node.op, ast.LShift):
+            # Visit the left operand first
+            self.visit(left)
+            # Store result in temp variable
+            self.output.append('STA temp_var')
+            # Visit the right operand
+            self.visit(right)
+            # Store shift amount in X register
+            self.output.append('TAX')
+            # Load value to shift
+            self.output.append('LDA temp_var')
+            # Perform shift
+            loop_label = f'shift_left_loop_{len(self.output)}'
+            end_label = f'shift_left_end_{len(self.output)}'
+            self.output.append(f'{loop_label}:')
+            self.output.append('ASL A')
+            self.output.append('DEX')
+            self.output.append(f'BNE {loop_label}')
+            self.output.append(f'{end_label}:')
+        elif isinstance(node.op, ast.RShift):
+            # Visit the left operand first
+            self.visit(left)
+            # Store result in temp variable
+            self.output.append('STA temp_var')
+            # Visit the right operand
+            self.visit(right)
+            # Store shift amount in X register
+            self.output.append('TAX')
+            # Load value to shift
+            self.output.append('LDA temp_var')
+            # Perform shift
+            loop_label = f'shift_right_loop_{len(self.output)}'
+            end_label = f'shift_right_end_{len(self.output)}'
+            self.output.append(f'{loop_label}:')
+            self.output.append('LSR A')
+            self.output.append('DEX')
+            self.output.append(f'BNE {loop_label}')
+            self.output.append(f'{end_label}:')
+        elif isinstance(node.op, ast.Add):
+            # Visit the left operand first
+            self.visit(left)
+            # Store result in temp variable
+            self.output.append('STA temp_var')
+            # Visit the right operand
+            self.visit(right)
+            # Add with carry
+            self.output.append('CLC')
+            self.output.append('ADC temp_var')
 
         # Handle nested binary operations on the left side
         if isinstance(left, ast.BinOp):
@@ -248,7 +418,9 @@ class PythonTo6502:
         elif isinstance(left, ast.Constant):
             left_value = f'#{left.value}'
         else:
-            raise NotImplementedError(f'Unsupported left operand type: {type(left)}')
+            raise NotImplementedError(
+                f'Unsupported left operand type: {type(left)}'
+            )
 
         # Handle nested binary operations on the right side
         if isinstance(right, ast.BinOp):
@@ -261,7 +433,9 @@ class PythonTo6502:
         elif isinstance(right, ast.Constant):
             right_value = f'#{right.value}'
         else:
-            raise NotImplementedError(f'Unsupported right operand type: {type(right)}')
+            raise NotImplementedError(
+                f'Unsupported right operand type: {type(right)}'
+            )
 
         # Get parent context to find where to store the result
         parent = getattr(node, '_parent', None)
@@ -465,7 +639,9 @@ class PythonTo6502:
             else:
                 raise NotImplementedError('Multiple operators not supported')
         else:
-            raise NotImplementedError('Only comparisons and True constant supported in while')
+            raise NotImplementedError(
+                'Only comparisons and True constant supported in while'
+            )
 
         # Loop body
         self.context_loop_end_label = end_label

@@ -161,3 +161,89 @@ class AssignSpec:
         var_q -= 1  # First decrement
         var_q -= 1  # Second decrement
         self.assertEqual(var_q, 42)
+
+    def test_assign_bitwise_and_operations(self):
+        # Test bitwise AND
+        var_a = 0b1100  # 12
+        var_b = 0b1010  # 10
+        var_c = var_a & var_b
+        self.assertEqual(var_c, 0b1000)  # 8
+
+    def test_assign_bitwise_or_operations(self):
+        # Test bitwise OR
+        var_a = 0b1100  # 12
+        var_b = 0b1010  # 10
+        var_d = var_a | var_b
+        self.assertEqual(var_d, 0b1110)  # 14
+
+    def test_assign_bitwise_xor_operations(self):
+        # Test bitwise XOR
+        var_a = 0b1100  # 12
+        var_b = 0b1010  # 10
+        var_e = var_a ^ var_b
+        self.assertEqual(var_e, 0b0110)  # 6
+
+    def test_assign_shift_operations(self):
+        # Test left shift
+        var_a = 2
+        var_b = var_a << 1  # Multiply by 2
+        self.assertEqual(var_b, 4)
+
+    def test_assign_shift_left_multiple(self):
+        # Test left shift multiple
+        var_a = 4
+        var_b = var_a << 2  # Multiply by 4
+        self.assertEqual(var_b, 16)
+
+    def test_assign_shift_right(self):
+        # Test right shift
+        var_a = 16
+        var_b = var_a >> 1  # Divide by 2
+        self.assertEqual(var_b, 8)
+
+    def test_assign_shift_right_multiple(self):
+        # Test right shift multiple
+        var_a = 8
+        var_b = var_a >> 2  # Divide by 4
+        self.assertEqual(var_b, 2)
+
+    def test_assign_augment_bitwise_and(self):
+        # Test augmented bitwise AND
+        var_a = 0b1100  # 12
+        var_a &= 0b1010  # 10
+        self.assertEqual(var_a, 0b1000)  # 8
+
+    def test_assign_augment_bitwise_or(self):
+        # Test augmented bitwise OR
+        var_b = 0b1000  # 8
+        var_b |= 0b0110  # 6
+        self.assertEqual(var_b, 0b1110)  # 14
+
+        # Test augmented bitwise XOR
+        var_c = 0b1100  # 12
+        var_c ^= 0b1010  # 10
+        self.assertEqual(var_c, 0b0110)  # 6
+
+    def test_assign_augment_shift_left_simple(self):
+        # Test simple augmented left shift
+        var_a = 2
+        var_a <<= 1  # 2 * 2 = 4
+        self.assertEqual(var_a, 4)
+
+    def test_assign_augment_shift_left_multiple(self):
+        # Test multiple augmented left shift
+        var_a = 4
+        var_a <<= 2  # 4 * 4 = 16
+        self.assertEqual(var_a, 16)
+
+    def test_assign_augment_shift_right_simple(self):
+        # Test simple augmented right shift
+        var_b = 16
+        var_b >>= 1  # 16 / 2 = 8
+        self.assertEqual(var_b, 8)
+
+    def test_assign_augment_shift_right_multiple(self):
+        # Test multiple augmented right shift
+        var_b = 8
+        var_b >>= 2  # 8 / 4 = 2
+        self.assertEqual(var_b, 2)
