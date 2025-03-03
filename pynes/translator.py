@@ -370,7 +370,10 @@ class PythonTo6502:
         self.output.append(f'{start_label}:')
 
         # Check condition
-        if isinstance(node.test, ast.Compare):
+        if isinstance(node.test, ast.Constant) and node.test.value is True:
+            # while True - no condition check needed
+            pass
+        elif isinstance(node.test, ast.Compare):
             left = node.test.left
             ops = node.test.ops
             comparators = node.test.comparators
@@ -414,7 +417,7 @@ class PythonTo6502:
             else:
                 raise NotImplementedError('Multiple operators not supported')
         else:
-            raise NotImplementedError('Only comparisons supported in while')
+            raise NotImplementedError('Only comparisons and True constant supported in while')
 
         # Loop body
         self.context_loop_end_label = end_label
