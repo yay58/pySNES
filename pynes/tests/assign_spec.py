@@ -47,6 +47,50 @@ class AssignSpec:
 
         self.assertEqual(var_e, 5)
 
+    # def test_assign_edge_cases(self):
+    #     # Test max 8-bit value
+    #     var_a = 255
+    #     self.assertEqual(var_a, 255)
+
+    #     # Test min value
+    #     var_b = 0
+    #     self.assertEqual(var_b, 0)
+
+    # def test_assign_with_expressions(self):
+    #     var_x = 5
+    #     var_y = 3
+
+    #     # Test addition in assignment
+    #     var_z = var_x + var_y
+    #     self.assertEqual(var_z, 8)
+
+    #     # Test subtraction in assignment
+    #     var_w = var_x - var_y
+    #     self.assertEqual(var_w, 2)
+
+    #     # Test compound expression
+    #     var_v = var_x + var_y - 2
+    #     self.assertEqual(var_v, 6)
+
+    # def test_multiple_assignments(self):
+    #     # Test multiple assignments in sequence
+    #     var_x = 1
+    #     var_y = var_x
+    #     var_z = var_y
+
+    #     self.assertEqual(var_x, 1)
+    #     self.assertEqual(var_y, 1)
+    #     self.assertEqual(var_z, 1)
+
+    #     # Test assigning result of operation
+    #     var_a = 5
+    #     var_b = var_a + 2
+    #     var_c = var_b - 1
+
+    #     self.assertEqual(var_a, 5)
+    #     self.assertEqual(var_b, 7)
+    #     self.assertEqual(var_c, 6)
+
     def test_assign_augment_2_plus_1_with_variable(self):
         var_q = 2
         var_e = 1

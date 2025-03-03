@@ -48,6 +48,54 @@ class IfSpec:
 
         self.assertEqual(var_w, 3)
 
+    # def test_nested_if(self):
+    #     var_x = 1
+    #     var_y = 2
+    #     var_z = 0
+
+    #     if var_x == 1:
+    #         if var_y == 2:
+    #             var_z = 3
+    #         else:
+    #             var_z = 4
+    #     else:
+    #         var_z = 5
+
+    #     self.assertEqual(var_z, 3)
+
+    #     # Test nested else path
+    #     var_x = 1
+    #     var_y = 3
+    #     var_z = 0
+
+    #     if var_x == 1:
+    #         if var_y == 2:
+    #             var_z = 3
+    #         else:
+    #             var_z = 4
+    #     else:
+    #         var_z = 5
+
+    #     self.assertEqual(var_z, 4)
+
+    # def test_if_with_multiple_vars(self):
+    #     var_x = 1
+    #     var_y = 2
+    #     var_z = 3
+    #     var_result = 0
+
+    #     if var_x == 1 and var_y == 2:
+    #         var_result = 1
+
+    #     self.assertEqual(var_result, 1)
+
+    #     # Test with OR condition
+    #     var_result = 0
+    #     if var_x == 0 or var_y == 2:
+    #         var_result = 1
+
+    #     self.assertEqual(var_result, 1)
+
     def test_elif_number(self):
         var_q = 3
         var_w = 0
