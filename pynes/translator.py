@@ -216,7 +216,8 @@ class PythonTo6502:
             var_value_str = node.value.id
         else:
             raise NotImplementedError(
-                f'Unsupported value type in augmented assignment: {type(node.value)}'
+                'Unsupported value type in augmented assignment: '
+                f'{type(node.value)}'
             )
 
         if isinstance(node.op, ast.Add):
@@ -300,59 +301,6 @@ class PythonTo6502:
                 self.output.append(f'STA {var_name}')
 
     def visit_BinOp(self, node):
-        # Handle binary operations
-        if isinstance(node.op, ast.LShift):
-            # Visit the left operand first
-            self.visit(node.left)
-            # Store result in temp variable
-            self.output.append('STA temp_var')
-            # Visit the right operand
-            self.visit(node.right)
-            # Store shift amount in X register
-            self.output.append('TAX')
-            # Load value to shift
-            self.output.append('LDA temp_var')
-            # Perform shift
-            loop_label = f'shift_left_loop_{len(self.output)}'
-            end_label = f'shift_left_end_{len(self.output)}'
-            self.output.append(f'BEQ {end_label}')
-            self.output.append(f'{loop_label}:')
-            self.output.append('ASL A')
-            self.output.append('DEX')
-            self.output.append(f'BNE {loop_label}')
-            self.output.append(f'{end_label}:')
-        elif isinstance(node.op, ast.RShift):
-            # Visit the left operand first
-            self.visit(node.left)
-            # Store result in temp variable
-            self.output.append('STA temp_var')
-            # Visit the right operand
-            self.visit(node.right)
-            # Store shift amount in X register
-            self.output.append('TAX')
-            # Load value to shift
-            self.output.append('LDA temp_var')
-            # Perform shift
-            loop_label = f'shift_right_loop_{len(self.output)}'
-            end_label = f'shift_right_end_{len(self.output)}'
-            self.output.append(f'BEQ {end_label}')
-            self.output.append(f'{loop_label}:')
-            self.output.append('LSR A')
-            self.output.append('DEX')
-            self.output.append(f'BNE {loop_label}')
-            self.output.append(f'{end_label}:')
-        elif isinstance(node.op, ast.Add):
-            # Visit the left operand first
-            self.visit(node.left)
-            # Store result in temp variable
-            self.output.append('STA temp_var')
-            # Visit the right operand
-            self.visit(node.right)
-            # Add with carry
-            self.output.append('CLC')
-            self.output.append('ADC temp_var')
-
-    def visit_BinOp(self, node):
         # Get the operands first
         left = node.left
         right = node.right
@@ -372,6 +320,7 @@ class PythonTo6502:
             # Perform shift
             loop_label = f'shift_left_loop_{len(self.output)}'
             end_label = f'shift_left_end_{len(self.output)}'
+            self.output.append(f'BEQ {end_label}')
             self.output.append(f'{loop_label}:')
             self.output.append('ASL A')
             self.output.append('DEX')
@@ -391,6 +340,7 @@ class PythonTo6502:
             # Perform shift
             loop_label = f'shift_right_loop_{len(self.output)}'
             end_label = f'shift_right_end_{len(self.output)}'
+            self.output.append(f'BEQ {end_label}')
             self.output.append(f'{loop_label}:')
             self.output.append('LSR A')
             self.output.append('DEX')
@@ -399,6 +349,13 @@ class PythonTo6502:
         elif isinstance(node.op, ast.Add):
             # Visit the left operand first
             self.visit(left)
+            # Store result in temp variable
+            self.output.append('STA temp_var')
+            # Visit the right operand
+            self.visit(right)
+            # Add with carry
+            self.output.append('CLC')
+            self.output.append('ADC temp_var')
             # Store result in temp variable
             self.output.append('STA temp_var')
             # Visit the right operand

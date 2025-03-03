@@ -247,3 +247,11 @@ class AssignSpec:
         var_b = 8
         var_b >>= 2  # 8 / 4 = 2
         self.assertEqual(var_b, 2)
+
+    def test_assign_augment_multiple_ops(self):
+        # Test chaining multiple operations in augmented assignment
+        var_a = 2
+        var_b = 3
+        var_c = 1
+        var_a += var_b + var_c  # Should be 2 + (3 + 1) = 6
+        self.assertEqual(var_a, 6)
