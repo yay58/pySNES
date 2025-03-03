@@ -46,14 +46,23 @@ class WhileSpec:
 
         self.assertEqual(var_q, 0)
 
-    # def test_while_break(self):
-    #     var_q = 0
-    #     var_w = 0
-    #     while var_q == 0:
-    #         var_w += 1
-    #         if var_w == 5:
-    #             break
+    def test_while_break(self):
+        var_q = 0
+        var_w = 0
+        while var_q == 0:
+            var_w += 1
+            if var_w == 5:
+                break
 
-    #     self.assertEqual(var_q, 0)
-    #     self.assertEqual(var_w, 5)
-    pass
+        self.assertEqual(var_q, 0)
+        self.assertEqual(var_w, 5)
+
+    def test_while_true(self):
+        var_w = 0
+        while True:
+            var_w += 1
+            if var_w == 5:
+                break
+
+        self.assertEqual(var_w, 5)
+
