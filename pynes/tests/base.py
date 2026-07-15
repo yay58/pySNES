@@ -164,7 +164,8 @@ class MetaNESTest(type):
                     )  # Assuming var_q is at address 0
                     print(f'Debug - PC: {self.cpu.cpu.pc:04X}')
                     raise Exception(
-                        f'Test exceeded {max_iterations} iterations - possible infinite loop'
+                        f'Test exceeded {max_iterations} iterations '
+                        '- possible infinite loop'
                     )
                 self.cpu.execute()
 
