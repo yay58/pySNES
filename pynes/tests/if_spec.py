@@ -48,53 +48,110 @@ class IfSpec:
 
         self.assertEqual(var_w, 3)
 
-    # def test_nested_if(self):
-    #     var_x = 1
-    #     var_y = 2
-    #     var_z = 0
+    def test_nested_if_inner_true(self):
+        var_x = 1
+        var_y = 2
+        var_z = 0
 
-    #     if var_x == 1:
-    #         if var_y == 2:
-    #             var_z = 3
-    #         else:
-    #             var_z = 4
-    #     else:
-    #         var_z = 5
+        if var_x == 1:
+            if var_y == 2:
+                var_z = 3
+            else:
+                var_z = 4
+        else:
+            var_z = 5
 
-    #     self.assertEqual(var_z, 3)
+        self.assertEqual(var_z, 3)
 
-    #     # Test nested else path
-    #     var_x = 1
-    #     var_y = 3
-    #     var_z = 0
+    def test_nested_if_inner_false(self):
+        var_x = 1
+        var_y = 3
+        var_z = 0
 
-    #     if var_x == 1:
-    #         if var_y == 2:
-    #             var_z = 3
-    #         else:
-    #             var_z = 4
-    #     else:
-    #         var_z = 5
+        if var_x == 1:
+            if var_y == 2:
+                var_z = 3
+            else:
+                var_z = 4
+        else:
+            var_z = 5
 
-    #     self.assertEqual(var_z, 4)
+        self.assertEqual(var_z, 4)
 
-    # def test_if_with_multiple_vars(self):
-    #     var_x = 1
-    #     var_y = 2
-    #     var_z = 3
-    #     var_result = 0
+    def test_nested_if_outer_false(self):
+        var_x = 2
+        var_y = 2
+        var_z = 0
 
-    #     if var_x == 1 and var_y == 2:
-    #         var_result = 1
+        if var_x == 1:
+            if var_y == 2:
+                var_z = 3
+            else:
+                var_z = 4
+        else:
+            var_z = 5
 
-    #     self.assertEqual(var_result, 1)
+        self.assertEqual(var_z, 5)
 
-    #     # Test with OR condition
-    #     var_result = 0
-    #     if var_x == 0 or var_y == 2:
-    #         var_result = 1
+    def test_if_with_and_condition_true(self):
+        var_x = 1
+        var_y = 2
+        var_result = 0
 
-    #     self.assertEqual(var_result, 1)
+        if var_x == 1 and var_y == 2:
+            var_result = 1
+
+        self.assertEqual(var_result, 1)
+
+    def test_if_with_and_condition_false_first(self):
+        var_x = 2
+        var_y = 2
+        var_result = 0
+
+        if var_x == 1 and var_y == 2:
+            var_result = 1
+
+        self.assertEqual(var_result, 0)
+
+    def test_if_with_and_condition_false_second(self):
+        var_x = 1
+        var_y = 3
+        var_result = 0
+
+        if var_x == 1 and var_y == 2:
+            var_result = 1
+
+        self.assertEqual(var_result, 0)
+
+    def test_if_with_or_condition_first_true(self):
+        var_x = 1
+        var_y = 3
+        var_result = 0
+
+        if var_x == 1 or var_y == 2:
+            var_result = 1
+
+        self.assertEqual(var_result, 1)
+
+    def test_if_with_or_condition_second_true(self):
+        var_x = 2
+        var_y = 2
+        var_result = 0
+
+        if var_x == 1 or var_y == 2:
+            var_result = 1
+
+        self.assertEqual(var_result, 1)
+
+    def test_if_with_or_condition_both_false(self):
+        var_x = 2
+        var_y = 3
+        var_result = 0
+
+        if var_x == 1 or var_y == 2:
+            var_result = 1
+
+        self.assertEqual(var_result, 0)
 
     def test_elif_number(self):
         var_q = 3
@@ -218,15 +275,15 @@ class IfSpec:
 
         self.assertEqual(var_w, 4)
 
-    # def test_if_and_else(self):
-    #     var_q = 1
-    #     var_w = 2
-    #     var_e = 3
+    def test_if_and_else(self):
+        var_q = 1
+        var_w = 2
+        var_e = 3
 
-    #     if var_q == 1 and var_w == 2:
-    #         var_e = 4
+        if var_q == 1 and var_w == 2:
+            var_e = 4
 
-    #     self.assertEqual(var_e, 4)
+        self.assertEqual(var_e, 4)
 
     def test_if_assign(self):
         var_q = 1
@@ -247,47 +304,47 @@ class IfSpec:
         self.assertNotEqual(var_e, var_w)
         self.assertEqual(var_e, 2)
 
-    # def test_if_true(self):
-    #     var_a, var_b = 1
-    #     var_c = 2
+    def test_if_true(self):
+        var_a, var_b = 1, 2
+        var_c = 2
 
-    #     if True:
-    #         var_c = var_a
+        if True:
+            var_c = var_a
 
-    #     self.assertEqual(var_a, var_c)
-    #     self.assertNotEqual(var_a, var_b)
-    #     self.assertEqual(var_c, 1)
+        self.assertEqual(var_a, var_c)
+        self.assertNotEqual(var_a, var_b)
+        self.assertEqual(var_c, 1)
 
-    # def test_if_false(self):
-    #     var_a, var_b = 1
-    #     var_c = 2
+    def test_if_false(self):
+        var_a, var_b = 1, 1
+        var_c = 2
 
-    #     if False:
-    #         var_c = var_a
+        if False:
+            var_c = var_a
 
-    #     self.assertEqual(var_a, 1)
-    #     self.assertEqual(var_a, var_b)
-    #     self.assertEqual(var_c, 2)
+        self.assertEqual(var_a, 1)
+        self.assertEqual(var_a, var_b)
+        self.assertEqual(var_c, 2)
 
-    # def test_if_greater_than_2(self):
-    #     var_a = 1
-    #     var_b = 2
-    #     var_c = 0
+    def test_if_greater_than_2(self):
+        var_a = 1
+        var_b = 2
+        var_c = 0
 
-    #     if var_a > var_b:
-    #         var_c = var_a
+        if var_a > var_b:
+            var_c = var_a
 
-    #     self.assertEqual(var_c, 0)
+        self.assertEqual(var_c, 0)
 
-    # def test_if_greater_than_else(self):
-    #     var_a = 2
-    #     var_b = 1
-    #     var_c = 0
+    def test_if_greater_than_else(self):
+        var_a = 2
+        var_b = 1
+        var_c = 0
 
-    #     if var_a > var_b:
-    #         var_c = var_a
-    #     else:
-    #         var_c = var_b
+        if var_a > var_b:
+            var_c = var_a
+        else:
+            var_c = var_b
 
-    #     self.assertEqual(var_c, var_a)
-    #     self.assertEqual(var_c, 2)
+        self.assertEqual(var_c, var_a)
+        self.assertEqual(var_c, 2)
