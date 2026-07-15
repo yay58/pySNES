@@ -7,8 +7,16 @@
 local result_path = os.getenv('RESULT_FILE') or 'screen_result.txt'
 local regions = os.getenv('REGIONS') or '0,0,255,239'
 local frames = tonumber(os.getenv('WAIT_FRAMES') or 120)
+-- HOLD_BUTTONS format: 'right,A' (held on joypad 1 every frame)
+local hold = os.getenv('HOLD_BUTTONS') or ''
+
+local buttons = {}
+for button in string.gmatch(hold, '[^,]+') do
+    buttons[button] = true
+end
 
 for _ = 1, frames do
+    joypad.set(1, buttons)
     emu.frameadvance()
 end
 

@@ -52,3 +52,38 @@ class PPURegisterTest(TestCase):
         self.ppu.write_register(0x2004, 1)
         self.assertEqual(self.ppu.oam[0], 120)
         self.assertEqual(self.ppu.oam[1], 1)
+
+
+class PadTest(TestCase):
+    def setUp(self):
+        from neslib.pad import Pad
+
+        self.pad = Pad()
+
+    def _poll(self):
+        """The pad_poll protocol: strobe, then 8 reads, A first."""
+        self.pad.write(1)
+        self.pad.write(0)
+        state = 0
+        for _ in range(8):
+            state = ((state << 1) | self.pad.read()) & 0xFF
+        return state
+
+    def test_buttons_shift_out_a_first(self):
+        from neslib import PAD_A, PAD_RIGHT
+
+        self.pad.state = PAD_A | PAD_RIGHT
+        self.assertEqual(self._poll(), PAD_A | PAD_RIGHT)
+
+    def test_strobe_high_repeats_a(self):
+        from neslib import PAD_A
+
+        self.pad.state = PAD_A
+        self.pad.write(1)
+        self.assertEqual(self.pad.read(), 1)
+        self.assertEqual(self.pad.read(), 1)
+
+    def test_reads_past_eight_return_one(self):
+        self.pad.state = 0
+        self.assertEqual(self._poll(), 0)
+        self.assertEqual(self.pad.read(), 1)

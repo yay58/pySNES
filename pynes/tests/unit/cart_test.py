@@ -466,6 +466,278 @@ class CartStageTest(TestCase):
         self.assertTrue(len(ast) > 0)
 
 
+class CartFunctionScopeTest(TestCase):
+    """Functions see the global context; unknown names are errors."""
+
+    def _compile(self, source):
+        from neslib.library import lib
+
+        return Cart(libraries=[lib]).compile(source)
+
+    def test_undefined_var_in_function_fails(self):
+        with self.assertRaises(NameError) as ctx:
+            self._compile(
+                '''
+def helper():
+    var_x = var_never_assigned + 1
+
+@reset
+def main():
+    helper()
+'''
+            )
+        self.assertIn('var_never_assigned', str(ctx.exception))
+
+    def test_undefined_var_in_entry_fails(self):
+        with self.assertRaises(NameError):
+            self._compile(
+                '''
+@reset
+def main():
+    var_x = var_missing
+'''
+            )
+
+    def test_function_reads_a_global(self):
+        # reading needs no global statement: a name not assigned
+        # locally falls through to the module scope, like Python
+        asm = self._compile(
+            '''
+var_total = 0
+
+def show():
+    var_copy = var_total + 1
+
+@reset
+def main():
+    global var_total
+    var_total = 5
+    show()
+'''
+        )
+        self.assertIn('show:', asm)
+        self.assertIn('LDA var_total', asm)
+        self.assertIn('STA show_var_copy', asm)
+
+    def test_assignment_without_global_is_local(self):
+        # assigning without a global statement declares a local,
+        # exactly like Python: main gets its own var_total
+        asm = self._compile(
+            '''
+var_total = 0
+
+@reset
+def main():
+    var_total = 5
+'''
+        )
+        self.assertIn('main_var_total .rs 1', asm)
+        self.assertIn('STA main_var_total', asm)
+
+    def test_global_statement_shares_state_between_entries(self):
+        asm = self._compile(
+            '''
+@reset
+def main():
+    global var_count
+    var_count = 0
+    nmi_on()
+    ppu_on_all()
+
+@nmi
+def frame():
+    global var_count
+    var_count += 1
+'''
+        )
+        self.assertIn('var_count .rs 1', asm)
+        self.assertNotIn('main_var_count', asm)
+        self.assertIn('INC var_count', asm)
+
+    def test_augmented_assignment_without_binding_fails(self):
+        # in Python this is an UnboundLocalError at runtime; the
+        # compiler reports it upfront
+        with self.assertRaises(UnboundLocalError) as ctx:
+            self._compile(
+                '''
+@reset
+def main():
+    global var_count
+    var_count = 0
+
+@nmi
+def frame():
+    var_count += 1
+'''
+            )
+        self.assertIn('var_count', str(ctx.exception))
+
+    def test_function_mutates_a_global_array(self):
+        # subscript stores do not rebind the name, so a function can
+        # mutate a global array in place (like Python)
+        asm = self._compile(
+            '''
+var_data = [0, 0, 0]
+
+def clear_first():
+    var_data[0] = 0
+
+@reset
+def main():
+    global var_data
+    var_data = [1, 2, 3]
+    clear_first()
+'''
+        )
+        self.assertIn('STA var_data,X', asm)
+
+    def test_locals_are_mangled_globals_are_not(self):
+        asm = self._compile(
+            '''
+var_shared = 0
+
+def helper():
+    var_local = var_shared + 1
+
+@reset
+def main():
+    helper()
+'''
+        )
+        self.assertIn('helper_var_local .rs 1', asm)
+        self.assertIn('var_shared .rs 1', asm)
+        self.assertNotIn('helper_var_shared', asm)
+
+
+ARRAY_PARAM_SOURCE = '''
+def fill(arr, value):
+    for var_i in range(5):
+        arr[var_i] = value
+
+@reset
+def main():
+    var_data = [0, 0, 0, 0, 0]
+    fill(var_data, 7)
+'''
+
+
+class CartArrayParamTest(TestCase):
+    """Array arguments bind at compile time: the call targets a
+    specialized copy of the function."""
+
+    def setUp(self):
+        from neslib.library import lib
+
+        self.cart = Cart(libraries=[lib])
+        self.asm = self.cart.compile(ARRAY_PARAM_SOURCE)
+
+    def test_call_targets_the_specialized_copy(self):
+        # var_data is a local of main (mangled), and the call binds
+        # the array at compile time
+        self.assertIn('JSR fill__main_var_data', self.asm)
+        self.assertIn('fill__main_var_data:', self.asm)
+
+    def test_body_operates_on_the_array_itself(self):
+        self.assertIn('STA main_var_data,X', self.asm)
+
+    def test_scalar_parameter_still_passed(self):
+        self.assertIn('STA fill__main_var_data_value', self.asm)
+
+    def test_unused_original_is_dropped(self):
+        self.assertNotIn('\nfill:', self.asm)
+
+    def test_parseable_by_nesasm(self):
+        tokens = lexical(self.asm)
+        ast = syntax(tokens)
+        self.assertTrue(len(ast) > 0)
+
+
+GENERATOR_SOURCE = '''
+def blink():
+    var_on = 1
+    yield
+    var_on = 0
+    yield
+
+@reset
+def main():
+    ppu_on_all()
+    nmi_on()
+
+@nmi
+def frame():
+    step(blink)
+'''
+
+
+class CartGeneratorTest(TestCase):
+    def setUp(self):
+        from neslib.library import lib
+
+        self.cart = Cart(libraries=[lib])
+        self.asm = self.cart.compile(GENERATOR_SOURCE)
+
+    def test_state_variable_allocated_and_zeroed_at_boot(self):
+        self.assertIn('blink__state .rs 1', self.asm)
+        self.assertIn('STA blink__state', self.asm)
+
+    def test_function_name_is_a_label_not_a_variable(self):
+        self.assertIn('blink:', self.asm)
+        self.assertNotIn('blink .rs', self.asm)
+
+    def test_dispatch_and_resume_points(self):
+        self.assertIn('JMP blink__begin', self.asm)
+        self.assertIn('JMP blink__resume_1', self.asm)
+        self.assertIn('JMP blink__resume_2', self.asm)
+        self.assertIn('blink__resume_2:', self.asm)
+
+    def test_step_calls_the_task(self):
+        self.assertIn('JSR blink', self.asm)
+
+    def test_parseable_by_nesasm(self):
+        tokens = lexical(self.asm)
+        ast = syntax(tokens)
+        self.assertTrue(len(ast) > 0)
+
+
+PAD_SOURCE = '''
+@reset
+def main():
+    var_pad = 0
+    ppu_on_all()
+    nmi_on()
+
+@nmi
+def frame():
+    var_pad = pad_poll()
+    if var_pad & PAD_RIGHT:
+        var_pad = 0
+'''
+
+
+class CartPadTest(TestCase):
+    def setUp(self):
+        from neslib.library import lib
+
+        self.cart = Cart(libraries=[lib])
+        self.asm = self.cart.compile(PAD_SOURCE)
+
+    def test_pad_poll_extern_and_runtime(self):
+        self.assertIn('JSR pad_poll', self.asm)
+        self.assertIn('pad_poll:', self.asm)
+        self.assertIn('STA $4016', self.asm)
+
+    def test_button_constant_substituted(self):
+        # PAD_RIGHT folds to 1: the truthiness test ANDs against it
+        self.assertIn('AND #1', self.asm)
+        self.assertNotIn('PAD_RIGHT', self.asm)
+
+    def test_parseable_by_nesasm(self):
+        tokens = lexical(self.asm)
+        ast = syntax(tokens)
+        self.assertTrue(len(ast) > 0)
+
+
 DATA_SOURCE = '''
 hello = string('HI!')
 tiles = rom([1, 2, 3])

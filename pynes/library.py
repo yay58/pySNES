@@ -17,8 +17,14 @@ class Library:
         self.name = name
         self.externs = {}
         self.const_funcs = {}
+        self.constants = {}
         self.runtime_asm = []
         self.ram = {}
+
+    def constant(self, name, value):
+        """Register a named constant (e.g. button masks) substituted
+        into user code at compile time."""
+        self.constants[name] = value
 
     def extern(self, func=None, *, name=None):
         """Register an extern emitter. Usable as ``@lib.extern`` or

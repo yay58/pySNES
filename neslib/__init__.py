@@ -6,8 +6,20 @@ by the pyNES compiler to generate real 6502 code.
 """
 
 from neslib.ppu import PPU, MASK_ON_ALL, CTRL_NMI
+from neslib.pad import Pad
 
 ppu = PPU()
+pad = Pad()
+
+# controller buttons, in shift-out order (A first)
+PAD_A = 0x80
+PAD_B = 0x40
+PAD_SELECT = 0x20
+PAD_START = 0x10
+PAD_UP = 0x08
+PAD_DOWN = 0x04
+PAD_LEFT = 0x02
+PAD_RIGHT = 0x01
 
 
 def NTADR_A(x, y):
@@ -41,6 +53,12 @@ def scroll(x, y):
     """Set the background scroll position (also resets the internal
     latch clobbered by VRAM writes during NMI)."""
     ppu.scroll = (x, y)
+
+
+def pad_poll():
+    """Read the first controller: one byte with A in bit 7 down to
+    Right in bit 0."""
+    return pad.state & 0xFF
 
 
 def scroll_x(x, nt):

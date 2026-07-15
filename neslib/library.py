@@ -1,11 +1,30 @@
 import ast
 
 from pynes.library import Library
-from neslib import NTADR_A
+from neslib import (
+    NTADR_A,
+    PAD_A,
+    PAD_B,
+    PAD_SELECT,
+    PAD_START,
+    PAD_UP,
+    PAD_DOWN,
+    PAD_LEFT,
+    PAD_RIGHT,
+)
 
 lib = Library('neslib')
 
 lib.const(NTADR_A)
+
+lib.constant('PAD_A', PAD_A)
+lib.constant('PAD_B', PAD_B)
+lib.constant('PAD_SELECT', PAD_SELECT)
+lib.constant('PAD_START', PAD_START)
+lib.constant('PAD_UP', PAD_UP)
+lib.constant('PAD_DOWN', PAD_DOWN)
+lib.constant('PAD_LEFT', PAD_LEFT)
+lib.constant('PAD_RIGHT', PAD_RIGHT)
 
 # 16-bit string pointer: adjacent registrations guarantee
 # str_ptr_hi == str_ptr + 1, as required by (indirect),Y addressing
@@ -22,6 +41,9 @@ lib.zeropage('num_hi')
 # 16-bit scratch for stage_col offset math: adjacent lo/hi pair
 lib.zeropage('map_lo')
 lib.zeropage('map_hi')
+
+# controller shift-in scratch
+lib.zeropage('pad_state')
 
 
 @lib.extern
@@ -58,6 +80,13 @@ def scroll(translator, args):
     translator.load_arg8_x(args[0])
     translator.load_arg8(args[1])
     translator.output.append('JSR scroll')
+
+
+@lib.extern
+def pad_poll(translator, args):
+    # pad_poll(): leaves the controller byte in A (and pad_state),
+    # so it can be assigned: var_pad = pad_poll()
+    translator.output.append('JSR pad_poll')
 
 
 @lib.extern
@@ -201,6 +230,23 @@ scroll:
   LDA $2002
   STX $2005
   STY $2005
+  RTS
+
+pad_poll:
+  ; strobe the controller, then shift the 8 buttons into pad_state
+  ; (A ends up in bit 7 down to Right in bit 0)
+  LDA #1
+  STA $4016
+  LDA #0
+  STA $4016
+  LDX #8
+pad_poll_loop:
+  LDA $4016
+  LSR A
+  ROL pad_state
+  DEX
+  BNE pad_poll_loop
+  LDA pad_state
   RTS
 
 scroll_x:

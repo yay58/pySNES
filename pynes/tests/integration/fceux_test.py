@@ -41,7 +41,7 @@ def fceux_available():
     )
 
 
-def run_screen_check(rom_bytes, regions, wait_frames=120):
+def run_screen_check(rom_bytes, regions, wait_frames=120, hold_buttons=''):
     """Run a ROM in FCEUX, returning lit-pixel counts per region."""
     with tempfile.TemporaryDirectory() as tmp:
         rom_path = os.path.join(tmp, 'test.nes')
@@ -55,6 +55,7 @@ def run_screen_check(rom_bytes, regions, wait_frames=120):
                 ','.join(str(c) for c in region) for region in regions
             ),
             WAIT_FRAMES=str(wait_frames),
+            HOLD_BUTTONS=hold_buttons,
         )
         subprocess.run(  # nosec B603
             [shutil.which('fceux'), '--loadlua', LUA_SCRIPT, rom_path],
@@ -289,3 +290,38 @@ class ScrollingLevelScreenTest(TestCase):
         self.assertEqual(counts[7], 0)
         self.assertEqual(counts[8], BLOCK_PIXELS)
         self.assertEqual(counts[9], BLOCK_PIXELS)
+
+
+@unittest.skipUnless(fceux_available(), 'fceux or display not available')
+class WalkingScreenTest(TestCase):
+    def test_holding_right_walks_to_the_end(self):
+        rom = build_demo_rom('walking.py')
+        # holding Right walks the whole level (2 px/frame, 768 px);
+        # at the end the last nametable shows the big '4'
+        regions = [
+            char_cell(16, 12, 0),  # digit '4' top row: block
+            char_cell(13, 16, 0),  # digit '4' middle bar: block
+            char_cell(20, 20, 0),  # end platform: block
+        ]
+        counts, _ = run_screen_check(
+            rom, regions, wait_frames=450, hold_buttons='right'
+        )
+
+        self.assertEqual(counts[0], BLOCK_PIXELS)
+        self.assertEqual(counts[1], BLOCK_PIXELS)
+        self.assertEqual(counts[2], BLOCK_PIXELS)
+
+    def test_without_input_the_camera_stays(self):
+        rom = build_demo_rom('walking.py')
+        # no buttons: still showing nametable A with the digit '1'
+        # (block cells 13-17; its bottom row '.###.' lights 14-16)
+        regions = [
+            char_cell(15, 18, 0),  # digit '1' bottom row: block
+            char_cell(13, 18, 0),  # digit '1' bottom row: empty
+            char_cell(4, 20, 0),  # start platform: block
+        ]
+        counts, _ = run_screen_check(rom, regions, wait_frames=450)
+
+        self.assertEqual(counts[0], BLOCK_PIXELS)
+        self.assertEqual(counts[1], 0)
+        self.assertEqual(counts[2], BLOCK_PIXELS)
