@@ -212,6 +212,167 @@ def main():
         self.assertTrue(len(ast) > 0)
 
 
+class CartPutNum16Test(TestCase):
+    def setUp(self):
+        self.asm = make_cart().compile(
+            '''
+var_big = uint16()
+
+@reset
+def main():
+    var_big = 40320
+    put_num16(var_big)
+'''
+        )
+
+    def test_uint16_assign(self):
+        self.assertIn('STA var_big', self.asm)
+        self.assertIn('STA var_big__hi', self.asm)
+
+    def test_put_num16_call(self):
+        self.assertIn('STA num_lo', self.asm)
+        self.assertIn('STA num_hi', self.asm)
+        self.assertIn('JSR put_num16', self.asm)
+
+    def test_runtime_linked(self):
+        self.assertIn('put_num16:', self.asm)
+
+    def test_parseable_by_nesasm(self):
+        tokens = lexical(self.asm)
+        ast = syntax(tokens)
+        self.assertTrue(len(ast) > 0)
+
+
+class CartAnnotatedDeclarationTest(TestCase):
+    def setUp(self):
+        self.asm = make_cart().compile(
+            '''
+score: uint16 = 40320
+lives: uint8 = 3
+
+@reset
+def main():
+    put_num16(score)
+'''
+        )
+
+    def test_uint16_annotation_allocates_pair(self):
+        lines = self.asm.splitlines()
+        lo = lines.index('score .rs 1')
+        self.assertEqual(lines[lo + 1], 'score__hi .rs 1')
+
+    def test_uint16_initialized_16bit(self):
+        reset_code = self.asm[self.asm.index('RESET:') :]
+        # 40320 = 0x9D80 -> lo 128, hi 157
+        self.assertIn('LDA #128', reset_code)
+        self.assertIn('STA score', reset_code)
+        self.assertIn('LDA #157', reset_code)
+        self.assertIn('STA score__hi', reset_code)
+
+    def test_uint8_annotation(self):
+        self.assertIn('lives .rs 1', self.asm)
+        reset_code = self.asm[self.asm.index('RESET:') :]
+        self.assertIn('LDA #3', reset_code)
+        self.assertIn('STA lives', reset_code)
+
+    def test_parseable_by_nesasm(self):
+        tokens = lexical(self.asm)
+        ast = syntax(tokens)
+        self.assertTrue(len(ast) > 0)
+
+
+class CartNmiAnimationTest(TestCase):
+    def setUp(self):
+        self.asm = make_cart().compile(
+            '''
+@reset
+def main():
+    var_i = 0
+    nmi_on()
+    ppu_on_all()
+
+@nmi
+def frame():
+    var_i += 1
+    scroll(0, 0)
+'''
+        )
+
+    def test_nmi_on_call(self):
+        self.assertIn('JSR nmi_on', self.asm)
+        self.assertIn('nmi_on:', self.asm)
+
+    def test_scroll_call(self):
+        self.assertIn('JSR scroll', self.asm)
+        self.assertIn('scroll:', self.asm)
+
+    def test_nmi_body_compiled(self):
+        nmi_code = self.asm[self.asm.index('NMI:') :]
+        self.assertIn('INC var_i', nmi_code)
+
+    def test_parseable_by_nesasm(self):
+        tokens = lexical(self.asm)
+        ast = syntax(tokens)
+        self.assertTrue(len(ast) > 0)
+
+
+SPRITE_SOURCE = '''
+ball = tile([
+    '..####..',
+    '.######.',
+    '########',
+    '########',
+    '########',
+    '########',
+    '.######.',
+    '..####..',
+])
+
+@reset
+def main():
+    oam_clear()
+    oam_spr(100, 120, ball, 0, 0)
+    oam_dma()
+    ppu_on_all()
+'''
+
+
+class CartSpriteTest(TestCase):
+    def setUp(self):
+        from neslib.library import lib
+
+        self.cart = Cart(libraries=[lib], chr_banks=1, chr_data=bytes(8192))
+        self.asm = self.cart.compile(SPRITE_SOURCE)
+
+    def test_tile_name_becomes_constant_index(self):
+        # first declared tile gets CHR index 1
+        self.assertIn('LDA #1', self.asm)
+
+    def test_oam_spr_writes_shadow_page(self):
+        self.assertIn('STA $0200', self.asm)  # y
+        self.assertIn('STA $0201', self.asm)  # tile
+        self.assertIn('STA $0202', self.asm)  # attributes
+        self.assertIn('STA $0203', self.asm)  # x
+
+    def test_oam_runtime_linked(self):
+        self.assertIn('oam_clear:', self.asm)
+        self.assertIn('oam_dma:', self.asm)
+        self.assertIn('STA $4014', self.asm)
+
+    def test_tile_encoded_into_chr_bank(self):
+        # tile 1 -> CHR offset 16: first row of the ball is $3C
+        chr_section = self.asm[self.asm.index('.bank 2') :]
+        self.assertIn('$3C, $7E, $FF, $FF, $FF, $FF, $7E, $3C', chr_section)
+
+    def test_tile_not_allocated_in_ram(self):
+        self.assertNotIn('ball .rs', self.asm)
+
+    def test_parseable_by_nesasm(self):
+        tokens = lexical(self.asm)
+        ast = syntax(tokens)
+        self.assertTrue(len(ast) > 0)
+
+
 DATA_SOURCE = '''
 hello = string('HI!')
 tiles = rom([1, 2, 3])
@@ -245,7 +406,10 @@ class CartDataTest(TestCase):
         self.assertIn('counter .rs 1', self.asm)
 
     def test_uint16_in_ram(self):
-        self.assertIn('score .rs 2', self.asm)
+        # two adjacent one-byte labels (no label arithmetic in nesasm)
+        lines = self.asm.splitlines()
+        lo = lines.index('score .rs 1')
+        self.assertEqual(lines[lo + 1], 'score__hi .rs 1')
 
     def test_constant_in_ram_with_init(self):
         self.assertIn('lives .rs 1', self.asm)

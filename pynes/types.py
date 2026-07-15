@@ -9,6 +9,7 @@ recognizes these declarations by name and allocates them:
 
 RAM_TYPES = {'uint8': 1, 'uint16': 2}
 ROM_TYPES = ('string', 'rom')
+CHR_TYPES = ('tile',)
 
 
 def uint8(value=0):
@@ -29,3 +30,10 @@ def string(text):
 def rom(data):
     """Read-only byte array in ROM (e.g. palettes, tiles, level maps)."""
     return list(data)
+
+
+def tile(art):
+    """An 8x8 CHR tile defined as ASCII art ('#' = pixel). At compile
+    time the tile is placed in the CHR bank and the name becomes its
+    tile index."""
+    return list(art)

@@ -17,10 +17,14 @@ DEMOS = [
     'factorial.py',
     'factorial_1.py',
     'factorial_2.py',
+    'factorial_3.py',
     'sorter_bubble.py',
     'sorter_bubble_1.py',
     'sorter_bubble_2.py',
     'sorter_quicksort.py',
+    'sorter_insertion.py',
+    'sorter_bubble_animated.py',
+    'sprite.py',
 ]
 
 

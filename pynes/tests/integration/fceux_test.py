@@ -127,6 +127,21 @@ class FactorialScreenTest(TestCase):
     def test_factorial_2_with_put_num_matches(self):
         self._check('factorial_2.py')
 
+    def test_factorial_3_uint16_renders_40320(self):
+        rom = build_demo_rom('factorial_3.py')
+        text = '8! = 40320'
+        regions = [text_region(11, 14, text)]
+        regions += [char_cell(11, 14, 5 + i) for i in range(5)]
+        counts, _ = run_screen_check(rom, regions)
+
+        self.assertEqual(counts[0], expected_lit_pixels(text))
+        for i, digit in enumerate('40320'):
+            self.assertEqual(
+                counts[1 + i],
+                expected_lit_pixels(digit),
+                f'digit {i} should be {digit!r}',
+            )
+
 
 @unittest.skipUnless(fceux_available(), 'fceux or display not available')
 class SorterScreenTest(TestCase):
@@ -156,3 +171,36 @@ class SorterScreenTest(TestCase):
 
     def test_quicksort_matches(self):
         self._check('sorter_quicksort.py')
+
+    def test_insertion_matches(self):
+        self._check('sorter_insertion.py')
+
+    def test_animated_bubble_settles_sorted(self):
+        # one sort step per vblank: after 120 frames the working row
+        # must have settled on the sorted result
+        self._check('sorter_bubble_animated.py')
+
+
+BALL_ART = [
+    '..####..',
+    '.######.',
+    '########',
+    '########',
+    '########',
+    '########',
+    '.######.',
+    '..####..',
+]
+
+
+@unittest.skipUnless(fceux_available(), 'fceux or display not available')
+class SpriteScreenTest(TestCase):
+    def test_sprite_is_rendered(self):
+        rom = build_demo_rom('sprite.py')
+        # OAM y is delayed by one scanline: sprite at y=120 shows at 121
+        regions = [(100, 121, 107, 128), (8, 8, 15, 15)]
+        counts, _ = run_screen_check(rom, regions)
+
+        expected = sum(row.count('#') for row in BALL_ART)
+        self.assertEqual(counts[0], expected)
+        self.assertEqual(counts[1], 0)  # background is clean

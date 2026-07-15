@@ -8,7 +8,8 @@ from pynes.translator import (
     ScopeMangler,
     VarTable,
 )
-from pynes.types import RAM_TYPES, ROM_TYPES
+from pynes.chr import TILE_SIZE, encode_tile
+from pynes.types import CHR_TYPES, RAM_TYPES, ROM_TYPES
 
 ENTRY_POINTS = ('reset', 'nmi', 'irq')
 
@@ -27,6 +28,21 @@ RESET_PREAMBLE = [
     'BIT $2002',
     'BPL vblank_wait_2',
 ]
+
+
+class _ConstSubstituter(ast.NodeTransformer):
+    """Replaces names of compile-time constants (e.g. tile indexes)
+    with their literal values."""
+
+    def __init__(self, constants):
+        self.constants = constants
+
+    def visit_Name(self, node):
+        if isinstance(node.ctx, ast.Load) and node.id in self.constants:
+            return ast.copy_location(
+                ast.Constant(value=self.constants[node.id]), node
+            )
+        return node
 
 
 class CartVarTable(VarTable):
@@ -82,7 +98,7 @@ class Cart:
                     entries[entry] = node
             elif isinstance(node, (ast.Import, ast.ImportFrom)):
                 continue
-            elif isinstance(node, ast.Assign):
+            elif isinstance(node, (ast.Assign, ast.AnnAssign)):
                 declarations.append(node)
             else:
                 raise NotImplementedError(
@@ -99,7 +115,31 @@ class Cart:
         ram_vars = {}
         ram_init = {}
         rom_data = {}
+        chr_tiles = {}
         for node in declarations:
+            if isinstance(node, ast.AnnAssign):
+                # typed declaration: score: uint16 = 40320
+                if not isinstance(node.target, ast.Name) or not isinstance(
+                    node.annotation, ast.Name
+                ):
+                    raise NotImplementedError(
+                        'Only simple annotated declarations are supported'
+                    )
+                type_name = node.annotation.id
+                if type_name not in RAM_TYPES:
+                    raise NotImplementedError(
+                        f'Unsupported annotation: {type_name!r}'
+                    )
+                name = node.target.id
+                ram_vars[name] = RAM_TYPES[type_name]
+                if node.value is not None:
+                    if not isinstance(node.value, ast.Constant):
+                        raise NotImplementedError(
+                            'Annotated declarations require constant '
+                            'initial values'
+                        )
+                    ram_init[name] = node.value.value
+                continue
             if len(node.targets) != 1 or not isinstance(
                 node.targets[0], ast.Name
             ):
@@ -122,6 +162,13 @@ class Cart:
             elif (
                 isinstance(value, ast.Call)
                 and isinstance(value.func, ast.Name)
+                and value.func.id in CHR_TYPES
+            ):
+                arg = value.args[0]
+                chr_tiles[name] = [elt.value for elt in arg.elts]
+            elif (
+                isinstance(value, ast.Call)
+                and isinstance(value.func, ast.Name)
                 and value.func.id in ROM_TYPES
             ):
                 arg = value.args[0]
@@ -133,7 +180,7 @@ class Cart:
                 raise NotImplementedError(
                     f'Unsupported top-level declaration: {name!r}'
                 )
-        return ram_vars, ram_init, rom_data
+        return ram_vars, ram_init, rom_data, chr_tiles
 
     def _make_translator(self, functions):
         translator = PythonTo6502(libraries=self.libraries)
@@ -176,12 +223,32 @@ class Cart:
             address += var.size
         return vartable.vars
 
+    def _place_tiles(self, chr_tiles):
+        """Assign CHR indexes (from 1: tile 0 stays blank) and encode
+        the tiles into a copy of the CHR bank."""
+        tile_indexes = {name: 1 + i for i, name in enumerate(chr_tiles)}
+        chr_data = bytearray(self.chr_data or b'')
+        for name, art in chr_tiles.items():
+            offset = tile_indexes[name] * TILE_SIZE
+            chr_data[offset : offset + TILE_SIZE] = encode_tile(art)
+        return tile_indexes, bytes(chr_data)
+
     def compile(self, source):
         tree = ast.parse(source)
         entries, declarations, functions = self._collect_entries(tree)
-        ram_vars, ram_init, rom_data = self._collect_declarations(declarations)
+        ram_vars, ram_init, rom_data, chr_tiles = self._collect_declarations(
+            declarations
+        )
+        tile_indexes, chr_data = self._place_tiles(chr_tiles)
+        if tile_indexes:
+            substituter = _ConstSubstituter(tile_indexes)
+            for node in list(entries.values()) + functions:
+                substituter.visit(node)
         variables = self._collect_vars(entries, functions)
         translator = self._make_translator(functions)
+        translator.uint16_vars = {
+            name for name, size in ram_vars.items() if size == 2
+        }
 
         out = []
         out.append('; Generated by pyNES')
@@ -200,7 +267,13 @@ class Cart:
             for name, size in library_ram.items():
                 out.append(f'{name} .rs {size}')
             for name, size in ram_vars.items():
-                out.append(f'{name} .rs {size}')
+                if size == 2:
+                    # uint16: two adjacent labels, no label arithmetic
+                    # in nesasm so the hi byte needs its own name
+                    out.append(f'{name} .rs 1')
+                    out.append(f'{name}__hi .rs 1')
+                else:
+                    out.append(f'{name} .rs {size}')
             allocated = set(library_ram) | set(ram_vars) | set(rom_data)
             for var in variables.values():
                 if var.label not in allocated:
@@ -214,8 +287,14 @@ class Cart:
         out.append('RESET:')
         out.extend(RESET_PREAMBLE)
         for name, value in ram_init.items():
-            out.append(f'LDA #{value}')
-            out.append(f'STA {name}')
+            if ram_vars.get(name) == 2:
+                out.append(f'LDA #{value & 0xFF}')
+                out.append(f'STA {name}')
+                out.append(f'LDA #{(value >> 8) & 0xFF}')
+                out.append(f'STA {name}__hi')
+            else:
+                out.append(f'LDA #{value}')
+                out.append(f'STA {name}')
         out.extend(self._translate_body(translator, entries['reset']))
         out.append('forever:')
         out.append('JMP forever')
@@ -258,11 +337,11 @@ class Cart:
         out.append('.dw IRQ')
         out.append('')
 
-        if self.chr_banks and self.chr_data:
+        if self.chr_banks and chr_data:
             out.append(f'.bank {self.prg_banks * 2}')
             out.append('.org $0000')
-            for i in range(0, len(self.chr_data), 16):
-                chunk = self.chr_data[i : i + 16]
+            for i in range(0, len(chr_data), 16):
+                chunk = chr_data[i : i + 16]
                 out.append(
                     '.db ' + ', '.join(f'${byte:02X}' for byte in chunk)
                 )

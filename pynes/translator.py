@@ -59,6 +59,10 @@ class ScopeMangler(ast.NodeTransformer):
                 stmt.target, ast.Name
             ):
                 local.add(stmt.target.id)
+            elif isinstance(stmt, ast.AnnAssign) and isinstance(
+                stmt.target, ast.Name
+            ):
+                local.add(stmt.target.id)
             elif isinstance(stmt, ast.For) and isinstance(
                 stmt.target, ast.Name
             ):
@@ -71,7 +75,28 @@ class ScopeMangler(ast.NodeTransformer):
         return node
 
 
-TEMP_VARS = ('temp_var', 'temp_left', 'temp_right', 'temp_mul')
+TEMP_VARS = (
+    'temp_var',
+    'temp_left',
+    'temp_right',
+    'temp_mul',
+    'temp16_lo',
+    'temp16_hi',
+)
+
+
+def _is_uint16_decl(value):
+    """True for `x = uint16()` declarations."""
+    return (
+        isinstance(value, ast.Call)
+        and isinstance(value.func, ast.Name)
+        and value.func.id == 'uint16'
+    )
+
+
+def _is_uint16_annotation(annotation):
+    """True for `x: uint16` annotations."""
+    return isinstance(annotation, ast.Name) and annotation.id == 'uint16'
 
 
 class VarTable(ast.NodeVisitor):
@@ -93,6 +118,14 @@ class VarTable(ast.NodeVisitor):
             self.visit(arg)
 
     def visit_Assign(self, node: ast.Assign):
+        # uint16 declaration: allocate two adjacent one-byte slots
+        if _is_uint16_decl(node.value) and isinstance(
+            node.targets[0], ast.Name
+        ):
+            name = node.targets[0].id
+            self.get_var(name).assigns += 1
+            self.get_var(f'{name}__hi').assigns += 1
+            return
         # Handle single and multiple assignments
         for target in node.targets:
             if isinstance(target, ast.Tuple):
@@ -126,6 +159,21 @@ class VarTable(ast.NodeVisitor):
         self.get_var(node.target.id).assigns += 1
         self.visit(node.value)
 
+    def visit_AnnAssign(self, node: ast.AnnAssign):
+        if not isinstance(node.target, ast.Name):
+            raise NotImplementedError(
+                'Only simple annotated assignments are supported'
+            )
+        name = node.target.id
+        if _is_uint16_annotation(node.annotation):
+            # two adjacent one-byte slots
+            self.get_var(name).assigns += 1
+            self.get_var(f'{name}__hi').assigns += 1
+        else:
+            self.get_var(name).assigns += 1
+        if node.value is not None:
+            self.visit(node.value)
+
     def locate(self, python_code):
         self.vars = {}
         tree = ScopeMangler().visit(ast.parse(python_code))
@@ -146,6 +194,7 @@ class PythonTo6502:
         self.loop_end_labels = []
         self.loop_continue_labels = []
         self.debug_comment = True
+        self.uint16_vars = set()
         self.externs = {}
         self.const_funcs = {}
         self.functions = {}
@@ -410,8 +459,146 @@ class PythonTo6502:
         else:
             raise NotImplementedError('Unsupported assignment target')
 
+    def _assign_uint16(self, name, value):
+        """Emit a 16-bit assignment to a uint16 variable."""
+        value = self._fold_const(value)
+        if isinstance(value, ast.Constant):
+            lo, hi = value.value & 0xFF, (value.value >> 8) & 0xFF
+            self.output.append(f'LDA #{lo}')
+            self.output.append(f'STA {name}')
+            self.output.append(f'LDA #{hi}')
+            self.output.append(f'STA {name}__hi')
+        elif isinstance(value, ast.Name) and value.id in self.uint16_vars:
+            self.output.append(f'LDA {value.id}')
+            self.output.append(f'STA {name}')
+            self.output.append(f'LDA {value.id}__hi')
+            self.output.append(f'STA {name}__hi')
+        elif isinstance(value, ast.Name):
+            # 8-bit variable: zero-extend
+            self.output.append(f'LDA {value.id}')
+            self.output.append(f'STA {name}')
+            self.output.append('LDA #0')
+            self.output.append(f'STA {name}__hi')
+        elif isinstance(value, ast.BinOp) and isinstance(value.op, ast.Mult):
+            self._uint16_mul(name, value)
+        elif isinstance(value, ast.BinOp) and isinstance(
+            value.op, (ast.Add, ast.Sub)
+        ):
+            if not (
+                isinstance(value.left, ast.Name) and value.left.id == name
+            ):
+                raise NotImplementedError(
+                    'uint16 add/sub must be of the form x = x + value'
+                )
+            self._uint16_add_sub(name, value.op, value.right)
+        else:
+            raise NotImplementedError('Unsupported uint16 assignment')
+
+    def _uint16_add_sub(self, name, op, operand):
+        """Emit 16-bit x += / -= operand with carry propagation."""
+        operand = self._fold_const(operand)
+        if isinstance(op, ast.Add):
+            prep, inst = 'CLC', 'ADC'
+        else:
+            prep, inst = 'SEC', 'SBC'
+        if isinstance(operand, ast.Constant):
+            lo, hi = operand.value & 0xFF, (operand.value >> 8) & 0xFF
+            lo_arg, hi_arg = f'#{lo}', f'#{hi}'
+        elif isinstance(operand, ast.Name):
+            if operand.id in self.uint16_vars:
+                lo_arg, hi_arg = operand.id, f'{operand.id}__hi'
+            else:
+                lo_arg, hi_arg = operand.id, '#0'
+        else:
+            raise NotImplementedError('Unsupported uint16 operand')
+        self.output.append(prep)
+        self.output.append(f'LDA {name}')
+        self.output.append(f'{inst} {lo_arg}')
+        self.output.append(f'STA {name}')
+        self.output.append(f'LDA {name}__hi')
+        self.output.append(f'{inst} {hi_arg}')
+        self.output.append(f'STA {name}__hi')
+
+    def _uint16_mul(self, name, value):
+        """Emit x = x * n (uint16 x, uint8 n) by repeated addition."""
+        left, right = value.left, value.right
+        if isinstance(right, ast.Name) and right.id == name:
+            left, right = right, left
+        if not (
+            isinstance(left, ast.Name)
+            and left.id == name
+            and isinstance(right, ast.Name)
+        ):
+            raise NotImplementedError(
+                'uint16 multiply must be of the form x = x * var'
+            )
+        mul_loop = self._generate_label()
+        mul_end = self._generate_label()
+        self.output.append(f'LDA {name}')
+        self.output.append('STA temp16_lo')
+        self.output.append(f'LDA {name}__hi')
+        self.output.append('STA temp16_hi')
+        self.output.append('LDA #0')
+        self.output.append(f'STA {name}')
+        self.output.append(f'STA {name}__hi')
+        self.output.append(f'LDX {right.id}')
+        self.output.append(f'{mul_loop}:')
+        self.output.append('CPX #0')
+        self.output.append(f'BEQ {mul_end}')
+        self.output.append('CLC')
+        self.output.append(f'LDA {name}')
+        self.output.append('ADC temp16_lo')
+        self.output.append(f'STA {name}')
+        self.output.append(f'LDA {name}__hi')
+        self.output.append('ADC temp16_hi')
+        self.output.append(f'STA {name}__hi')
+        self.output.append('DEX')
+        self.output.append(f'JMP {mul_loop}')
+        self.output.append(f'{mul_end}:')
+
+    @debug_comment
+    def visit_AnnAssign(self, node):
+        """Typed declaration: `x: uint16 = 400` or bare `x: uint16`."""
+        if not isinstance(node.target, ast.Name):
+            raise NotImplementedError(
+                'Only simple annotated assignments are supported'
+            )
+        name = node.target.id
+        if _is_uint16_annotation(node.annotation):
+            self.uint16_vars.add(name)
+            if node.value is not None:
+                self._assign_uint16(name, node.value)
+            return
+        # any other annotation (e.g. uint8) compiles as a plain assign
+        if node.value is not None:
+            assign = ast.Assign(
+                targets=[node.target],
+                value=node.value,
+            )
+            ast.copy_location(assign, node)
+            assign._parent = getattr(node, '_parent', None)
+            self.visit_Assign(assign)
+
     @debug_comment
     def visit_Assign(self, node):
+        # uint16 declaration: x = uint16() marks x as 16-bit
+        if _is_uint16_decl(node.value) and isinstance(
+            node.targets[0], ast.Name
+        ):
+            name = node.targets[0].id
+            self.uint16_vars.add(name)
+            if node.value.args:
+                self._assign_uint16(name, node.value.args[0])
+            return
+
+        # 16-bit assignment to a declared uint16 variable
+        if (
+            isinstance(node.targets[0], ast.Name)
+            and node.targets[0].id in self.uint16_vars
+        ):
+            self._assign_uint16(node.targets[0].id, node.value)
+            return
+
         # Handle tuple assignment: a, b = x, y (e.g. pythonic swap)
         if isinstance(node.targets[0], ast.Tuple):
             targets = node.targets[0].elts
@@ -500,6 +687,23 @@ class PythonTo6502:
     @debug_comment
     def visit_AugAssign(self, node):
         var_name = node.target.id
+
+        # 16-bit augmented assignment on a uint16 variable
+        if var_name in self.uint16_vars:
+            if isinstance(node.op, (ast.Add, ast.Sub)):
+                self._uint16_add_sub(var_name, node.op, node.value)
+            elif isinstance(node.op, ast.Mult):
+                fake = ast.BinOp(
+                    left=ast.Name(id=var_name, ctx=ast.Load()),
+                    op=node.op,
+                    right=node.value,
+                )
+                self._uint16_mul(var_name, fake)
+            else:
+                raise NotImplementedError(
+                    'Unsupported uint16 augmented assignment'
+                )
+            return
 
         # Handle complex expressions in the value
         if isinstance(node.value, (ast.BinOp, ast.Subscript, ast.Call)):

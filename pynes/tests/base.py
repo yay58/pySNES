@@ -66,6 +66,11 @@ def attach_test(code_tree, asserts_tree):
                 ]
             else:
                 context[v.name] = self.cpu.memory_fetch(v.address)
+        # fold uint16 lo/hi byte pairs into a single value
+        for name in [n for n in context if n.endswith('__hi')]:
+            base = name[: -len('__hi')]
+            if base in context:
+                context[base] += context.pop(name) * 256
         executable = compile(asserts_tree, '<string>', 'exec')
         exec(executable, {}, context)  # nosec B102
 

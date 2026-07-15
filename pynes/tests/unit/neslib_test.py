@@ -69,6 +69,54 @@ class NeslibPutStrTest(TestCase):
         self.assertEqual(neslib.ppu.vram[addr + 2], ord('!'))
 
 
+class NeslibNmiTest(TestCase):
+    def setUp(self):
+        neslib.ppu.reset()
+
+    def test_nmi_on_sets_ctrl_bit(self):
+        self.assertFalse(neslib.ppu.nmi_enabled)
+        neslib.nmi_on()
+        self.assertTrue(neslib.ppu.nmi_enabled)
+
+    def test_scroll_updates_position(self):
+        neslib.scroll(0, 0)
+        self.assertEqual(neslib.ppu.scroll, (0, 0))
+
+
+class NeslibOamTest(TestCase):
+    def setUp(self):
+        neslib.ppu.reset()
+
+    def test_oam_clear_hides_all_sprites(self):
+        neslib.oam_clear()
+        self.assertEqual(neslib.ppu.oam, bytearray(b'\xff' * 256))
+
+    def test_oam_spr_sets_sprite_entry(self):
+        neslib.oam_clear()
+        neslib.oam_spr(100, 120, 1, 0, 0)
+
+        self.assertEqual(neslib.ppu.oam[0], 120)  # y
+        self.assertEqual(neslib.ppu.oam[1], 1)  # tile
+        self.assertEqual(neslib.ppu.oam[2], 0)  # attributes
+        self.assertEqual(neslib.ppu.oam[3], 100)  # x
+
+    def test_oam_spr_second_sprite(self):
+        neslib.oam_clear()
+        neslib.oam_spr(10, 20, 2, 1, 1)
+
+        self.assertEqual(neslib.ppu.oam[4], 20)
+        self.assertEqual(neslib.ppu.oam[5], 2)
+        self.assertEqual(neslib.ppu.oam[6], 1)
+        self.assertEqual(neslib.ppu.oam[7], 10)
+
+    def test_oam_spr_accepts_tile_art(self):
+        # in CPython, tile() names hold the art; the mock keeps them
+        neslib.oam_clear()
+        art = ['#' * 8] * 8
+        neslib.oam_spr(50, 60, art, 0, 3)
+        self.assertEqual(neslib.ppu.oam_tiles[3], art)
+
+
 class NeslibPutNumTest(TestCase):
     def setUp(self):
         neslib.ppu.reset()
@@ -81,6 +129,17 @@ class NeslibPutNumTest(TestCase):
         self.assertEqual(neslib.ppu.vram[addr], ord('1'))
         self.assertEqual(neslib.ppu.vram[addr + 1], ord('2'))
         self.assertEqual(neslib.ppu.vram[addr + 2], ord('0'))
+
+    def test_put_num16_writes_five_decimal_digits(self):
+        addr = neslib.NTADR_A(5, 5)
+        neslib.vram_adr(addr)
+        neslib.put_num16(40320)
+
+        self.assertEqual(neslib.ppu.vram[addr], ord('4'))
+        self.assertEqual(neslib.ppu.vram[addr + 1], ord('0'))
+        self.assertEqual(neslib.ppu.vram[addr + 2], ord('3'))
+        self.assertEqual(neslib.ppu.vram[addr + 3], ord('2'))
+        self.assertEqual(neslib.ppu.vram[addr + 4], ord('0'))
 
     def test_put_num_pads_with_leading_zeros(self):
         addr = neslib.NTADR_A(5, 5)
