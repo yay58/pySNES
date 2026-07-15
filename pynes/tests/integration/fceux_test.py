@@ -145,8 +145,14 @@ class SorterScreenTest(TestCase):
                 f'cell {i} should show {digit!r}',
             )
 
-    def test_sorted_row_is_rendered_in_order(self):
-        self._check('sorter.py')
+    def test_bubble_sorted_row_is_rendered_in_order(self):
+        self._check('sorter_bubble.py')
 
-    def test_sorter_1_pythonic_matches(self):
-        self._check('sorter_1.py')
+    def test_bubble_1_pythonic_matches(self):
+        self._check('sorter_bubble_1.py')
+
+    def test_bubble_2_tuple_swap_matches(self):
+        self._check('sorter_bubble_2.py')
+
+    def test_quicksort_matches(self):
+        self._check('sorter_quicksort.py')

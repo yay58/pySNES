@@ -96,11 +96,16 @@ class VarTable(ast.NodeVisitor):
         # Handle single and multiple assignments
         for target in node.targets:
             if isinstance(target, ast.Tuple):
-                # Handle tuple unpacking
+                # Handle tuple unpacking (elements may be names or
+                # array subscripts, e.g. a[j], a[k] = a[k], a[j])
                 for elt in target.elts:
-                    name = elt.id
-                    var = self.get_var(name)
-                    var.assigns += 1
+                    if isinstance(elt, ast.Subscript):
+                        var = self.get_var(elt.value.id)
+                        var.assigns += 1
+                        self.visit(elt.slice)
+                    else:
+                        var = self.get_var(elt.id)
+                        var.assigns += 1
             elif isinstance(target, ast.Subscript):
                 var = self.get_var(target.value.id)
                 var.assigns += 1
@@ -386,14 +391,13 @@ class PythonTo6502:
             self.output.append(f'{end_label}:')
             self.output.append('NOP')
 
-    @debug_comment
-    def visit_Assign(self, node):
-        # Handle array element assignment: arr[i] = value
-        if isinstance(node.targets[0], ast.Subscript):
-            target = node.targets[0]
+    def _store_to(self, target):
+        """Store the A register into a Name or Subscript target."""
+        if isinstance(target, ast.Name):
+            self.output.append(f'STA {target.id}')
+        elif isinstance(target, ast.Subscript):
             if not isinstance(target.value, ast.Name):
                 raise NotImplementedError('Only named arrays are supported')
-            self._eval_to_a(node.value)
             if self._is_simple_index(target.slice):
                 self._load_index(target.slice, 'X')
             else:
@@ -403,6 +407,35 @@ class PythonTo6502:
                 self._load_index(target.slice, 'X')
                 self.output.append('PLA')
             self.output.append(f'STA {target.value.id},X')
+        else:
+            raise NotImplementedError('Unsupported assignment target')
+
+    @debug_comment
+    def visit_Assign(self, node):
+        # Handle tuple assignment: a, b = x, y (e.g. pythonic swap)
+        if isinstance(node.targets[0], ast.Tuple):
+            targets = node.targets[0].elts
+            if not isinstance(node.value, ast.Tuple) or len(
+                node.value.elts
+            ) != len(targets):
+                raise NotImplementedError(
+                    'Tuple assignment requires matching tuples on '
+                    'both sides'
+                )
+            # evaluate every value onto the stack first, so swaps
+            # read the old values before any target is written
+            for value in node.value.elts:
+                self._eval_to_a(value)
+                self.output.append('PHA')
+            for target in reversed(targets):
+                self.output.append('PLA')
+                self._store_to(target)
+            return
+
+        # Handle array element assignment: arr[i] = value
+        if isinstance(node.targets[0], ast.Subscript):
+            self._eval_to_a(node.value)
+            self._store_to(node.targets[0])
             return
 
         # Handle array literal assignment: arr = [1, 2, 3]
@@ -718,7 +751,20 @@ class PythonTo6502:
             self.output.append(f'STA {target_var}')
 
     def _branch_if_false(self, compare, false_label):
-        """Emit a comparison and branch to false_label when it fails."""
+        """Emit a comparison and branch to false_label when it fails.
+
+        Conditional branches only reach +-127 bytes, so they target a
+        local trampoline that JMPs to the real (possibly far) label.
+        """
+        near = self._generate_label()
+        cont = self._generate_label()
+        self._emit_branch_false(compare, near)
+        self.output.append(f'JMP {cont}')
+        self.output.append(f'{near}:')
+        self.output.append(f'JMP {false_label}')
+        self.output.append(f'{cont}:')
+
+    def _emit_branch_false(self, compare, false_label):
         if isinstance(compare, ast.Name):
             # Truthiness: a bare variable is true when it is not zero
             self.output.append(f'LDA {compare.id}')
@@ -750,7 +796,20 @@ class PythonTo6502:
             )
 
     def _branch_if_true(self, compare, true_label):
-        """Emit a comparison and branch to true_label when it succeeds."""
+        """Emit a comparison and branch to true_label when it succeeds.
+
+        Uses the same trampoline as _branch_if_false to support far
+        targets.
+        """
+        near = self._generate_label()
+        cont = self._generate_label()
+        self._emit_branch_true(compare, near)
+        self.output.append(f'JMP {cont}')
+        self.output.append(f'{near}:')
+        self.output.append(f'JMP {true_label}')
+        self.output.append(f'{cont}:')
+
+    def _emit_branch_true(self, compare, true_label):
         if isinstance(compare, ast.Name):
             # Truthiness: a bare variable is true when it is not zero
             self.output.append(f'LDA {compare.id}')
@@ -956,7 +1015,11 @@ class PythonTo6502:
             self.output.append(f'CMP {stop.id}')
         else:
             raise NotImplementedError('Unsupported range() stop')
-        self.output.append(f'BCS {end_label}')
+        # trampoline: the loop body may exceed branch range
+        loop_body = self._generate_label()
+        self.output.append(f'BCC {loop_body}')
+        self.output.append(f'JMP {end_label}')
+        self.output.append(f'{loop_body}:')
 
         # Loop body
         self.loop_end_labels.append(end_label)

@@ -115,6 +115,38 @@ class ArraySpec:
 
         self.assertEqual(var_r, 1)
 
+    def test_tuple_assignment(self):
+        var_a, var_b = 3, 7
+
+        self.assertEqual(var_a, 3)
+        self.assertEqual(var_b, 7)
+
+    def test_tuple_swap_variables(self):
+        var_a = 1
+        var_b = 2
+        var_a, var_b = var_b, var_a
+
+        self.assertEqual(var_a, 2)
+        self.assertEqual(var_b, 1)
+
+    def test_tuple_swap_array_elements(self):
+        var_arr = [9, 4]
+        var_arr[0], var_arr[1] = var_arr[1], var_arr[0]
+
+        self.assertEqual(var_arr[0], 4)
+        self.assertEqual(var_arr[1], 9)
+
+    def test_tuple_swap_expression_index(self):
+        var_arr = [2, 1]
+        var_j = 0
+        var_arr[var_j], var_arr[var_j + 1] = (
+            var_arr[var_j + 1],
+            var_arr[var_j],
+        )
+
+        self.assertEqual(var_arr[0], 1)
+        self.assertEqual(var_arr[1], 2)
+
     def test_array_neighbor_swap_without_temp_index(self):
         var_arr = [2, 1]
         var_j = 0
