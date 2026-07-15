@@ -56,7 +56,7 @@ def attach_test(code_tree, asserts_tree):
         for v in self.vars.values():
             context[v.name] = self.cpu.memory_fetch(v.address)
         executable = compile(asserts_tree, '<string>', 'exec')
-        exec(executable, {}, context)
+        exec(executable, {}, context)  # nosec B102
 
     return test
 
@@ -171,7 +171,7 @@ class MetaNESTest(type):
         def _run_asserts(self, asserts_tree):
             executable = compile(asserts_tree, '<string>', 'exec')
             context = {'self': self}
-            exec(executable, {}, context)
+            exec(executable, {}, context)  # nosec B102
 
         setattr(klass, 'setUp', setUp)
         setattr(klass, '_compile', _compile)
@@ -225,7 +225,7 @@ class MetaVarTableTest(type):
         def _run_asserts(self, asserts_tree):
             executable = compile(asserts_tree, '<string>', 'exec')
             context = {'self': self}
-            exec(executable, {}, context)
+            exec(executable, {}, context)  # nosec B102
 
         setattr(klass, 'setUp', setUp)
         setattr(klass, '_get_vars', _get_vars)
