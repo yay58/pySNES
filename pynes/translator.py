@@ -137,9 +137,11 @@ class PythonTo6502:
         self.loop_continue_labels = []
         self.debug_comment = True
         self.externs = {}
+        self.const_funcs = {}
         self.functions = {}
         for library in libraries or []:
             self.externs.update(library.externs)
+            self.const_funcs.update(getattr(library, 'const_funcs', {}))
 
     def translate(self, python_code):
         # Parse Python code into an AST, mangling function scopes
@@ -196,8 +198,24 @@ class PythonTo6502:
         else:
             raise NotImplementedError(f'Unknown function {name!r}')
 
+    def _fold_const(self, node):
+        """Fold a call to a const function with constant arguments into
+        an ast.Constant with its result."""
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id in self.const_funcs
+            and all(isinstance(arg, ast.Constant) for arg in node.args)
+        ):
+            value = self.const_funcs[node.func.id](
+                *[arg.value for arg in node.args]
+            )
+            return ast.Constant(value=value)
+        return node
+
     def _eval_to_a(self, node):
         """Evaluate an expression, leaving the result in the A register."""
+        node = self._fold_const(node)
         if isinstance(node, ast.Constant):
             self.output.append(f'LDA #{node.value}')
         elif isinstance(node, ast.Name):
@@ -240,6 +258,7 @@ class PythonTo6502:
 
     def load_arg8(self, arg):
         """Load an 8-bit argument into the A register."""
+        arg = self._fold_const(arg)
         if isinstance(arg, ast.Constant):
             self.output.append(f'LDA #{arg.value}')
         elif isinstance(arg, ast.Name):
@@ -249,6 +268,7 @@ class PythonTo6502:
 
     def load_arg16(self, arg):
         """Load a 16-bit argument into X (high byte) and A (low byte)."""
+        arg = self._fold_const(arg)
         if isinstance(arg, ast.Constant):
             value = arg.value
             self.output.append(f'LDX #{(value >> 8) & 0xFF}')
@@ -260,6 +280,7 @@ class PythonTo6502:
 
     def load_arg8_x(self, arg):
         """Load an 8-bit argument into the X register."""
+        arg = self._fold_const(arg)
         if isinstance(arg, ast.Constant):
             self.output.append(f'LDX #{arg.value}')
         elif isinstance(arg, ast.Name):
@@ -690,6 +711,11 @@ class PythonTo6502:
 
     def _branch_if_false(self, compare, false_label):
         """Emit a comparison and branch to false_label when it fails."""
+        if isinstance(compare, ast.Name):
+            # Truthiness: a bare variable is true when it is not zero
+            self.output.append(f'LDA {compare.id}')
+            self.output.append(f'BEQ {false_label}')
+            return
         if not isinstance(compare, ast.Compare) or len(compare.ops) != 1:
             raise NotImplementedError('Unsupported condition')
         self.visit(compare)
@@ -717,6 +743,11 @@ class PythonTo6502:
 
     def _branch_if_true(self, compare, true_label):
         """Emit a comparison and branch to true_label when it succeeds."""
+        if isinstance(compare, ast.Name):
+            # Truthiness: a bare variable is true when it is not zero
+            self.output.append(f'LDA {compare.id}')
+            self.output.append(f'BNE {true_label}')
+            return
         if not isinstance(compare, ast.Compare) or len(compare.ops) != 1:
             raise NotImplementedError('Unsupported condition')
         self.visit(compare)
@@ -841,12 +872,14 @@ class PythonTo6502:
         if isinstance(node.test, ast.Constant) and node.test.value is True:
             # while True - no condition check needed
             pass
-        elif isinstance(node.test, (ast.Compare, ast.BoolOp, ast.UnaryOp)):
+        elif isinstance(
+            node.test, (ast.Compare, ast.BoolOp, ast.UnaryOp, ast.Name)
+        ):
             self._test_branch_false(node.test, end_label)
         else:
             raise NotImplementedError(
-                'Only comparisons, AND/OR/NOT and True constant '
-                'supported in while'
+                'Only comparisons, AND/OR/NOT, variables and True '
+                'constant supported in while'
             )
 
         # Loop body

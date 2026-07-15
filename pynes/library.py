@@ -5,13 +5,20 @@ class Library:
     - externs: function names callable from user code, each backed by an
       emitter ``fn(translator, args)`` that appends 6502 assembly to
       ``translator.output``
+    - const_funcs: pure functions evaluated at compile time when all
+      their arguments are constants (e.g. nametable address helpers)
     - runtime_asm: 6502 assembly routines linked into the ROM
+    - ram: zero-page variables required by the runtime routines,
+      allocated by the cartridge in registration order (adjacent
+      registrations get adjacent addresses)
     """
 
     def __init__(self, name):
         self.name = name
         self.externs = {}
+        self.const_funcs = {}
         self.runtime_asm = []
+        self.ram = {}
 
     def extern(self, func=None, *, name=None):
         """Register an extern emitter. Usable as ``@lib.extern`` or
@@ -24,6 +31,16 @@ class Library:
         if func is not None:
             return register(func)
         return register
+
+    def const(self, func):
+        """Register a compile-time constant function. When called with
+        constant arguments, the call is folded into its result."""
+        self.const_funcs[func.__name__] = func
+        return func
+
+    def zeropage(self, name, size=1):
+        """Reserve a zero-page RAM variable for the runtime."""
+        self.ram[name] = size
 
     def runtime(self, asm):
         """Register a 6502 assembly routine to be linked into the ROM."""

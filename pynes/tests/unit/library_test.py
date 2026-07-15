@@ -4,6 +4,40 @@ from pynes.library import Library
 from pynes.translator import PythonTo6502
 
 
+class ConstFunctionTest(TestCase):
+    """Const functions are evaluated at compile time when all
+    arguments are constants (e.g. NTADR_A)."""
+
+    def test_const_registration(self):
+        lib = Library('mylib')
+
+        @lib.const
+        def double(x):
+            return x * 2
+
+        self.assertIn('double', lib.const_funcs)
+        self.assertEqual(lib.const_funcs['double'](21), 42)
+
+    def test_const_folding_in_extern_args(self):
+        lib = Library('mylib')
+
+        @lib.const
+        def addr(x, y):
+            return 0x2000 | (y << 5) | x
+
+        @lib.extern
+        def poke16(translator, args):
+            translator.load_arg16(args[0])
+            translator.output.append('JSR poke16')
+
+        translator = PythonTo6502(libraries=[lib])
+        asm = translator.translate('poke16(addr(10, 14))')
+        # 0x2000 | (14 << 5) | 10 = 0x21CA -> high 0x21, low 0xCA
+        self.assertIn('LDX #33', asm)
+        self.assertIn('LDA #202', asm)
+        self.assertIn('JSR poke16', asm)
+
+
 class LibraryContractTest(TestCase):
     """The library contract: externs, runtime asm and entry points."""
 

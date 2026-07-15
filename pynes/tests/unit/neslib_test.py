@@ -56,6 +56,19 @@ class NeslibPythonTest(TestCase):
         self.assertEqual(other.vram[0x2000], 0)
 
 
+class NeslibPutStrTest(TestCase):
+    def setUp(self):
+        neslib.ppu.reset()
+
+    def test_put_str_writes_to_nametable(self):
+        addr = neslib.NTADR_A(10, 14)
+        neslib.put_str(addr, 'HI!')
+
+        self.assertEqual(neslib.ppu.vram[addr], ord('H'))
+        self.assertEqual(neslib.ppu.vram[addr + 1], ord('I'))
+        self.assertEqual(neslib.ppu.vram[addr + 2], ord('!'))
+
+
 class NeslibExternTest(TestCase):
     """Compile-time behaviour: neslib registers externs for the compiler."""
 

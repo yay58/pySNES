@@ -32,6 +32,13 @@ def ppu_on_all():
     ppu.mask |= MASK_ON_ALL
 
 
+def put_str(addr, text):
+    """Write a zero-terminated string at a nametable address."""
+    vram_adr(addr)
+    for char in text:
+        vram_put(ord(char))
+
+
 def reset(func):
     """Entry point decorator: marks the RESET handler."""
     func.__pynes_entry__ = 'reset'

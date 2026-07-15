@@ -202,6 +202,28 @@ class WhileSpec:
 
         self.assertEqual(var_count, 6)
 
+    def test_while_truthy(self):
+        var_q = 3
+        var_steps = 0
+
+        while var_q:
+            var_q -= 1
+            var_steps += 1
+
+        self.assertEqual(var_q, 0)
+        self.assertEqual(var_steps, 3)
+
+    def test_while_not_truthy(self):
+        var_done = 0
+        var_count = 0
+
+        while not var_done:
+            var_count += 1
+            if var_count == 4:
+                var_done = 1
+
+        self.assertEqual(var_count, 4)
+
     def test_while_true_continue(self):
         var_x = 0
         var_y = 0

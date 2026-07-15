@@ -336,6 +336,33 @@ class IfSpec:
 
         self.assertEqual(var_c, 0)
 
+    def test_if_truthy(self):
+        var_q = 5
+        var_r = 0
+
+        if var_q:
+            var_r = 1
+
+        self.assertEqual(var_r, 1)
+
+    def test_if_truthy_zero(self):
+        var_q = 0
+        var_r = 0
+
+        if var_q:
+            var_r = 1
+
+        self.assertEqual(var_r, 0)
+
+    def test_if_not_truthy(self):
+        var_q = 0
+        var_r = 0
+
+        if not var_q:
+            var_r = 1
+
+        self.assertEqual(var_r, 1)
+
     def test_if_greater_than_else(self):
         var_a = 2
         var_b = 1
