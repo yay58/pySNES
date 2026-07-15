@@ -69,6 +69,29 @@ class NeslibPutStrTest(TestCase):
         self.assertEqual(neslib.ppu.vram[addr + 2], ord('!'))
 
 
+class NeslibPutNumTest(TestCase):
+    def setUp(self):
+        neslib.ppu.reset()
+
+    def test_put_num_writes_three_decimal_digits(self):
+        addr = neslib.NTADR_A(5, 5)
+        neslib.vram_adr(addr)
+        neslib.put_num(120)
+
+        self.assertEqual(neslib.ppu.vram[addr], ord('1'))
+        self.assertEqual(neslib.ppu.vram[addr + 1], ord('2'))
+        self.assertEqual(neslib.ppu.vram[addr + 2], ord('0'))
+
+    def test_put_num_pads_with_leading_zeros(self):
+        addr = neslib.NTADR_A(5, 5)
+        neslib.vram_adr(addr)
+        neslib.put_num(7)
+
+        self.assertEqual(neslib.ppu.vram[addr], ord('0'))
+        self.assertEqual(neslib.ppu.vram[addr + 1], ord('0'))
+        self.assertEqual(neslib.ppu.vram[addr + 2], ord('7'))
+
+
 class NeslibExternTest(TestCase):
     """Compile-time behaviour: neslib registers externs for the compiler."""
 

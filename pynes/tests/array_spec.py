@@ -81,3 +81,48 @@ class ArraySpec:
             var_r = 1
 
         self.assertEqual(var_r, 1)
+
+    def test_array_read_expression_index(self):
+        var_arr = [4, 5, 6]
+        var_i = 1
+        var_x = var_arr[var_i + 1]
+
+        self.assertEqual(var_x, 6)
+
+    def test_array_write_expression_index(self):
+        var_arr = [0, 0, 0]
+        var_i = 0
+        var_arr[var_i + 2] = 9
+
+        self.assertEqual(var_arr[0], 0)
+        self.assertEqual(var_arr[2], 9)
+
+    def test_array_write_expression_index_with_expression_value(self):
+        var_arr = [0, 0, 0]
+        var_i = 1
+        var_x = 4
+        var_arr[var_i + 1] = var_x + 3
+
+        self.assertEqual(var_arr[2], 7)
+
+    def test_array_compare_expression_index(self):
+        var_arr = [5, 3]
+        var_j = 0
+        var_r = 0
+
+        if var_arr[var_j] > var_arr[var_j + 1]:
+            var_r = 1
+
+        self.assertEqual(var_r, 1)
+
+    def test_array_neighbor_swap_without_temp_index(self):
+        var_arr = [2, 1]
+        var_j = 0
+
+        if var_arr[var_j] > var_arr[var_j + 1]:
+            var_tmp = var_arr[var_j]
+            var_arr[var_j] = var_arr[var_j + 1]
+            var_arr[var_j + 1] = var_tmp
+
+        self.assertEqual(var_arr[0], 1)
+        self.assertEqual(var_arr[1], 2)

@@ -188,6 +188,30 @@ class CartPutStrTest(TestCase):
         self.assertTrue(len(ast) > 0)
 
 
+class CartPutNumTest(TestCase):
+    def setUp(self):
+        self.asm = make_cart().compile(
+            '''
+@reset
+def main():
+    var_n = 120
+    put_num(var_n)
+'''
+        )
+
+    def test_put_num_call(self):
+        self.assertIn('LDA var_n', self.asm)
+        self.assertIn('JSR put_num', self.asm)
+
+    def test_runtime_linked(self):
+        self.assertIn('put_num:', self.asm)
+
+    def test_parseable_by_nesasm(self):
+        tokens = lexical(self.asm)
+        ast = syntax(tokens)
+        self.assertTrue(len(ast) > 0)
+
+
 DATA_SOURCE = '''
 hello = string('HI!')
 tiles = rom([1, 2, 3])

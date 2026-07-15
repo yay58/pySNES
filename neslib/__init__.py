@@ -39,6 +39,13 @@ def put_str(addr, text):
         vram_put(ord(char))
 
 
+def put_num(value):
+    """Write a number as three decimal digits (zero padded) at the
+    current VRAM address."""
+    for char in f'{value:03d}':
+        vram_put(ord(char))
+
+
 def reset(func):
     """Entry point decorator: marks the RESET handler."""
     func.__pynes_entry__ = 'reset'

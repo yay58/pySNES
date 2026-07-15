@@ -102,8 +102,8 @@ class HelloScreenTest(TestCase):
 
 @unittest.skipUnless(fceux_available(), 'fceux or display not available')
 class FactorialScreenTest(TestCase):
-    def test_factorial_result_is_rendered(self):
-        rom = build_demo_rom('factorial.py')
+    def _check(self, demo):
+        rom = build_demo_rom(demo)
         text = '5! = 120'
         regions = [
             text_region(12, 14, text),
@@ -118,11 +118,20 @@ class FactorialScreenTest(TestCase):
         self.assertEqual(counts[2], expected_lit_pixels('2'))
         self.assertEqual(counts[3], expected_lit_pixels('0'))
 
+    def test_factorial_result_is_rendered(self):
+        self._check('factorial.py')
+
+    def test_factorial_1_with_put_str_matches(self):
+        self._check('factorial_1.py')
+
+    def test_factorial_2_with_put_num_matches(self):
+        self._check('factorial_2.py')
+
 
 @unittest.skipUnless(fceux_available(), 'fceux or display not available')
 class SorterScreenTest(TestCase):
-    def test_sorted_row_is_rendered_in_order(self):
-        rom = build_demo_rom('sorter.py')
+    def _check(self, demo):
+        rom = build_demo_rom(demo)
         regions = [text_region(13, 12, '31425')]
         # each cell of the sorted row must contain the right digit
         regions += [char_cell(13, 16, i) for i in range(5)]
@@ -135,3 +144,9 @@ class SorterScreenTest(TestCase):
                 expected_lit_pixels(digit),
                 f'cell {i} should show {digit!r}',
             )
+
+    def test_sorted_row_is_rendered_in_order(self):
+        self._check('sorter.py')
+
+    def test_sorter_1_pythonic_matches(self):
+        self._check('sorter_1.py')

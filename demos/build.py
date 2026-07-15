@@ -10,7 +10,16 @@ from neslib.library import lib as neslib  # noqa: E402
 from pynes.cart import Cart  # noqa: E402
 
 DEMOS_DIR = os.path.dirname(os.path.abspath(__file__))
-DEMOS = ['hello.py', 'hello_1.py', 'hello_2.py', 'factorial.py', 'sorter.py']
+DEMOS = [
+    'hello.py',
+    'hello_1.py',
+    'hello_2.py',
+    'factorial.py',
+    'factorial_1.py',
+    'factorial_2.py',
+    'sorter.py',
+    'sorter_1.py',
+]
 
 
 def build(filename):

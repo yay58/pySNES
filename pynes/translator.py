@@ -40,6 +40,11 @@ class ScopeMangler(ast.NodeTransformer):
     collision-free variable slots (no software stack)."""
 
     def visit_FunctionDef(self, node):
+        # mangling must be idempotent: trees are shared between the
+        # variable table and the translator
+        if getattr(node, '_pynes_mangled', False):
+            return node
+        node._pynes_mangled = True
         local = {arg.arg for arg in node.args.args}
         for stmt in ast.walk(node):
             if isinstance(stmt, ast.Assign):
@@ -224,6 +229,11 @@ class PythonTo6502:
             # BinOp, Subscript and Call all leave their result in A
             self.visit(node)
 
+    @staticmethod
+    def _is_simple_index(index):
+        """Simple indexes load directly into X/Y without touching A."""
+        return isinstance(index, (ast.Constant, ast.Name))
+
     def _load_index(self, index, register='X'):
         """Load an array index into the X or Y register."""
         if isinstance(index, ast.Constant):
@@ -231,9 +241,10 @@ class PythonTo6502:
         elif isinstance(index, ast.Name):
             self.output.append(f'LD{register} {index.id}')
         else:
-            raise NotImplementedError(
-                'Only constant or variable array indexes are supported'
-            )
+            # expression index (e.g. arr[j + 1]): evaluate into A,
+            # then transfer. Clobbers A.
+            self._eval_to_a(index)
+            self.output.append(f'TA{register}')
 
     def visit_Subscript(self, node):
         """Load an array element into the A register."""
@@ -308,6 +319,13 @@ class PythonTo6502:
         if len(ops) == 1 and len(comparators) == 1:
             comparator = comparators[0]
 
+            # An expression index on the right side clobbers A, so it
+            # must be loaded into Y before the left operand
+            if isinstance(
+                comparator, ast.Subscript
+            ) and not self._is_simple_index(comparator.slice):
+                self._load_index(comparator.slice, 'Y')
+
             # Load the left operand into A
             if isinstance(left, ast.Name):
                 self.output.append(f'LDA {left.id}')
@@ -331,7 +349,8 @@ class PythonTo6502:
                     raise NotImplementedError(
                         'Only named arrays are supported'
                     )
-                self._load_index(comparator.slice, 'Y')
+                if self._is_simple_index(comparator.slice):
+                    self._load_index(comparator.slice, 'Y')
                 self.output.append(f'CMP {comparator.value.id},Y')
             else:
                 raise NotImplementedError('Unsupported comparison value type')
@@ -375,7 +394,14 @@ class PythonTo6502:
             if not isinstance(target.value, ast.Name):
                 raise NotImplementedError('Only named arrays are supported')
             self._eval_to_a(node.value)
-            self._load_index(target.slice, 'X')
+            if self._is_simple_index(target.slice):
+                self._load_index(target.slice, 'X')
+            else:
+                # expression index clobbers A: preserve the value on
+                # the stack while computing the index
+                self.output.append('PHA')
+                self._load_index(target.slice, 'X')
+                self.output.append('PLA')
             self.output.append(f'STA {target.value.id},X')
             return
 
@@ -587,24 +613,6 @@ class PythonTo6502:
             self.output.append('DEX')
             self.output.append(f'BNE {loop_label}')
             self.output.append(f'{end_label}:')
-        elif isinstance(node.op, ast.Add):
-            # Visit the left operand first
-            self.visit(left)
-            # Store result in temp variable
-            self.output.append('STA temp_var')
-            # Visit the right operand
-            self.visit(right)
-            # Add with carry
-            self.output.append('CLC')
-            self.output.append('ADC temp_var')
-            # Store result in temp variable
-            self.output.append('STA temp_var')
-            # Visit the right operand
-            self.visit(right)
-            # Add with carry
-            self.output.append('CLC')
-            self.output.append('ADC temp_var')
-
         # Handle nested binary operations on the left side
         if isinstance(left, ast.BinOp):
             self.visit(left)

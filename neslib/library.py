@@ -12,6 +12,9 @@ lib.const(NTADR_A)
 lib.zeropage('str_ptr')
 lib.zeropage('str_ptr_hi')
 
+# scratch byte for put_num decimal conversion
+lib.zeropage('num_tmp')
+
 
 @lib.extern
 def vram_adr(translator, args):
@@ -51,6 +54,12 @@ def put_str(translator, args):
     translator.output.append(f'LDA #HIGH({name})')
     translator.output.append('STA str_ptr_hi')
     translator.output.append('JSR put_str')
+
+
+@lib.extern
+def put_num(translator, args):
+    translator.load_arg8(args[0])
+    translator.output.append('JSR put_num')
 
 
 lib.runtime(
@@ -98,6 +107,42 @@ put_str_loop:
   INY
   JMP put_str_loop
 put_str_done:
+  RTS
+
+put_num:
+  LDX #0
+put_num_100:
+  CMP #100
+  BCC put_num_100_done
+  SEC
+  SBC #100
+  INX
+  JMP put_num_100
+put_num_100_done:
+  STA num_tmp
+  TXA
+  CLC
+  ADC #48
+  STA $2007
+  LDA num_tmp
+  LDX #0
+put_num_10:
+  CMP #10
+  BCC put_num_10_done
+  SEC
+  SBC #10
+  INX
+  JMP put_num_10
+put_num_10_done:
+  STA num_tmp
+  TXA
+  CLC
+  ADC #48
+  STA $2007
+  LDA num_tmp
+  CLC
+  ADC #48
+  STA $2007
   RTS
 '''
 )

@@ -20,6 +20,22 @@ class SortSpec:
         self.assertEqual(var_arr[3], 4)
         self.assertEqual(var_arr[4], 5)
 
+    def test_bubble_sort_pythonic(self):
+        var_arr = [5, 2, 4, 1, 3]
+
+        for var_i in range(5):
+            for var_j in range(4):
+                if var_arr[var_j] > var_arr[var_j + 1]:
+                    var_tmp = var_arr[var_j]
+                    var_arr[var_j] = var_arr[var_j + 1]
+                    var_arr[var_j + 1] = var_tmp
+
+        self.assertEqual(var_arr[0], 1)
+        self.assertEqual(var_arr[1], 2)
+        self.assertEqual(var_arr[2], 3)
+        self.assertEqual(var_arr[3], 4)
+        self.assertEqual(var_arr[4], 5)
+
     def test_selection_sort(self):
         var_arr = [3, 1, 4, 2]
         var_i = 0
