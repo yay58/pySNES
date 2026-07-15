@@ -37,3 +37,11 @@ def tile(art):
     time the tile is placed in the CHR bank and the name becomes its
     tile index."""
     return list(art)
+
+
+def stage(rows, legend):
+    """A level map defined as ASCII rows, anchored to the bottom of
+    the screen. legend maps characters to tile() names ('.' is the
+    blank tile). At compile time the stage is stored column-major in
+    PRG-ROM (30 bytes per column) for column streaming."""
+    return {'rows': list(rows), 'legend': dict(legend)}

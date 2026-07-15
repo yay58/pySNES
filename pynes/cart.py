@@ -8,7 +8,7 @@ from pynes.translator import (
     ScopeMangler,
     VarTable,
 )
-from pynes.chr import TILE_SIZE, encode_tile
+from pynes.chr import TILE_SIZE, encode_stage, encode_tile
 from pynes.types import CHR_TYPES, RAM_TYPES, ROM_TYPES
 
 ENTRY_POINTS = ('reset', 'nmi', 'irq')
@@ -28,6 +28,18 @@ RESET_PREAMBLE = [
     'BIT $2002',
     'BPL vblank_wait_2',
 ]
+
+
+def _fold_str(node):
+    """Evaluate a constant string expression: literals plus '+' and
+    '*' (so stage rows can be written as e.g. '.' * 128)."""
+    if isinstance(node, ast.Constant):
+        return node.value
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        return _fold_str(node.left) + _fold_str(node.right)
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Mult):
+        return _fold_str(node.left) * _fold_str(node.right)
+    raise NotImplementedError('Stage rows must be constant string expressions')
 
 
 class _ConstSubstituter(ast.NodeTransformer):
@@ -116,6 +128,7 @@ class Cart:
         ram_init = {}
         rom_data = {}
         chr_tiles = {}
+        stages = {}
         for node in declarations:
             if isinstance(node, ast.AnnAssign):
                 # typed declaration: score: uint16 = 40320
@@ -169,6 +182,19 @@ class Cart:
             elif (
                 isinstance(value, ast.Call)
                 and isinstance(value.func, ast.Name)
+                and value.func.id == 'stage'
+            ):
+                rows = [_fold_str(elt) for elt in value.args[0].elts]
+                legend = {
+                    key.value: tile_name.id
+                    for key, tile_name in zip(
+                        value.args[1].keys, value.args[1].values
+                    )
+                }
+                stages[name] = (rows, legend)
+            elif (
+                isinstance(value, ast.Call)
+                and isinstance(value.func, ast.Name)
                 and value.func.id in ROM_TYPES
             ):
                 arg = value.args[0]
@@ -180,7 +206,7 @@ class Cart:
                 raise NotImplementedError(
                     f'Unsupported top-level declaration: {name!r}'
                 )
-        return ram_vars, ram_init, rom_data, chr_tiles
+        return ram_vars, ram_init, rom_data, chr_tiles, stages
 
     def _make_translator(self, functions):
         translator = PythonTo6502(libraries=self.libraries)
@@ -236,10 +262,20 @@ class Cart:
     def compile(self, source):
         tree = ast.parse(source)
         entries, declarations, functions = self._collect_entries(tree)
-        ram_vars, ram_init, rom_data, chr_tiles = self._collect_declarations(
-            declarations
-        )
+        (
+            ram_vars,
+            ram_init,
+            rom_data,
+            chr_tiles,
+            stages,
+        ) = self._collect_declarations(declarations)
         tile_indexes, chr_data = self._place_tiles(chr_tiles)
+        for name, (rows, legend) in stages.items():
+            legend_indexes = {
+                char: tile_indexes[tile_name]
+                for char, tile_name in legend.items()
+            }
+            rom_data[name] = list(encode_stage(rows, legend_indexes))
         if tile_indexes:
             substituter = _ConstSubstituter(tile_indexes)
             for node in list(entries.values()) + functions:
@@ -326,7 +362,11 @@ class Cart:
             out.append('; data')
             for name, data in rom_data.items():
                 out.append(f'{name}:')
-                out.append('.db ' + ', '.join(f'${byte:02X}' for byte in data))
+                for i in range(0, len(data), 16):
+                    chunk = data[i : i + 16]
+                    out.append(
+                        '.db ' + ', '.join(f'${byte:02X}' for byte in chunk)
+                    )
             out.append('')
 
         out.append(f'.bank {self.prg_banks * 2 - 1}')

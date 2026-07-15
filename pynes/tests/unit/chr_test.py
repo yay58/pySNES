@@ -1,6 +1,36 @@
 from unittest import TestCase
 
-from pynes.chr import TILE_SIZE, encode_tile
+from pynes.chr import TILE_SIZE, encode_stage, encode_tile
+
+
+class EncodeStageTest(TestCase):
+    def test_column_major_layout(self):
+        rows = ['#..', '.#.']
+        data = encode_stage(rows, {'#': 5})
+
+        self.assertEqual(len(data), 3 * 30)
+        # column 0: 28 empty rows, then '#' (row 28) and '.' (row 29)
+        self.assertEqual(data[28], 5)
+        self.assertEqual(data[29], 0)
+        # column 1: '.' at row 28, '#' at row 29
+        self.assertEqual(data[30 + 28], 0)
+        self.assertEqual(data[30 + 29], 5)
+        # column 2 is empty
+        self.assertEqual(data[60:90], bytes(30))
+
+    def test_rows_anchor_to_the_bottom(self):
+        data = encode_stage(['#'], {'#': 1})
+        self.assertEqual(data[:29], bytes(29))
+        self.assertEqual(data[29], 1)
+
+    def test_uneven_rows_rejected(self):
+        with self.assertRaises(ValueError):
+            encode_stage(['##', '#'], {'#': 1})
+
+    def test_too_many_rows_rejected(self):
+        with self.assertRaises(ValueError):
+            encode_stage(['#'] * 31, {'#': 1})
+
 
 BALL = [
     '..####..',

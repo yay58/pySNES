@@ -27,6 +27,7 @@ DEMOS = [
     'sprite.py',
     'stage.py',
     'scrolling.py',
+    'scrolling_level.py',
 ]
 
 

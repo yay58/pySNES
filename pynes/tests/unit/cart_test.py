@@ -373,6 +373,99 @@ class CartSpriteTest(TestCase):
         self.assertTrue(len(ast) > 0)
 
 
+STAGE_SOURCE = '''
+block = tile([
+    '########',
+    '#......#',
+    '#......#',
+    '#......#',
+    '#......#',
+    '#......#',
+    '#......#',
+    '########',
+])
+
+level = stage(
+    [
+        '#...' + '.' * 124,
+        '#' * 128,
+    ],
+    {'#': block},
+)
+
+@reset
+def main():
+    var_col = 0
+    while var_col < 64:
+        stage_column(level, var_col)
+        var_col += 1
+    ppu_on_all()
+    nmi_on()
+
+@nmi
+def frame():
+    scroll_x(0, 0)
+'''
+
+
+class CartStageTest(TestCase):
+    def setUp(self):
+        from neslib.library import lib
+
+        self.cart = Cart(libraries=[lib], chr_banks=1, chr_data=bytes(8192))
+        self.asm = self.cart.compile(STAGE_SOURCE)
+
+    def _level_data(self):
+        start = self.asm.index('level:')
+        end = self.asm.index('.bank', start)
+        return self.asm[start:end]
+
+    def test_stage_data_emitted_column_major(self):
+        # column 0 has '#' (tile 1) at rows 28 and 29
+        data_section = self._level_data()
+        data = [
+            int(byte.strip().lstrip('$'), 16)
+            for line in data_section.splitlines()
+            if line.startswith('.db')
+            for byte in line[4:].split(',')
+        ]
+        self.assertEqual(data[28], 1)
+        self.assertEqual(data[29], 1)
+        # column 1 has '#' only at row 29 (the ground row)
+        self.assertEqual(data[30 + 28], 0)
+        self.assertEqual(data[30 + 29], 1)
+
+    def test_stage_data_is_chunked(self):
+        # 128 columns x 30 bytes = 3840 bytes -> 240 lines of 16
+        data_section = self._level_data()
+        lines = [
+            line
+            for line in data_section.splitlines()
+            if line.startswith('.db')
+        ]
+        self.assertEqual(len(lines), 240)
+
+    def test_stage_column_extern(self):
+        self.assertIn('LDA #LOW(level)', self.asm)
+        self.assertIn('LDA #HIGH(level)', self.asm)
+        self.assertIn('JSR stage_col', self.asm)
+
+    def test_scroll_x_extern(self):
+        self.assertIn('JSR scroll_x', self.asm)
+
+    def test_runtime_linked(self):
+        self.assertIn('stage_col:', self.asm)
+        self.assertIn('scroll_x:', self.asm)
+
+    def test_vertical_mirroring(self):
+        self.assertIn('.inesmir 1', self.asm)
+
+    def test_parseable_by_nesasm(self):
+        tokens = lexical(self.asm)
+        ast = syntax(tokens)
+        self.assertTrue(len(ast) > 0)
+
+
 DATA_SOURCE = '''
 hello = string('HI!')
 tiles = rom([1, 2, 3])

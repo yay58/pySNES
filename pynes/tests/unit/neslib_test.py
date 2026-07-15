@@ -82,6 +82,40 @@ class NeslibNmiTest(TestCase):
         neslib.scroll(0, 0)
         self.assertEqual(neslib.ppu.scroll, (0, 0))
 
+    def test_scroll_x_sets_nametable_bit(self):
+        neslib.scroll_x(100, 1)
+        self.assertEqual(neslib.ppu.scroll, (100, 0))
+        self.assertEqual(neslib.ppu.ctrl & 0x03, 1)
+
+    def test_scroll_x_wraps_nametable_index(self):
+        neslib.scroll_x(0, 2)
+        self.assertEqual(neslib.ppu.ctrl & 0x03, 0)
+
+
+class NeslibStageTest(TestCase):
+    def setUp(self):
+        neslib.ppu.reset()
+        self.level = {
+            'rows': ['#...' + '.' * 124, '#' * 128],
+            'legend': {'#': ['#' * 8] * 8},
+        }
+
+    def test_stage_column_writes_nametable_a(self):
+        neslib.stage_column(self.level, 0)
+        # rows anchor at the bottom: rows 28 and 29 are solid
+        self.assertEqual(neslib.ppu.vram[0x2000 + 28 * 32], 1)
+        self.assertEqual(neslib.ppu.vram[0x2000 + 29 * 32], 1)
+        self.assertEqual(neslib.ppu.vram[0x2000], 0)
+
+    def test_stage_column_wraps_to_nametable_b(self):
+        neslib.stage_column(self.level, 40)
+        self.assertEqual(neslib.ppu.vram[0x2400 + 29 * 32 + 8], 1)
+
+    def test_stage_column_wraps_past_two_nametables(self):
+        # column 64 lands back on physical column 0 (nametable A)
+        neslib.stage_column(self.level, 64)
+        self.assertEqual(neslib.ppu.vram[0x2000 + 29 * 32], 1)
+
 
 class NeslibOamTest(TestCase):
     def setUp(self):

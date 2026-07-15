@@ -19,6 +19,10 @@ lib.zeropage('num_tmp')
 lib.zeropage('num_lo')
 lib.zeropage('num_hi')
 
+# 16-bit scratch for stage_col offset math: adjacent lo/hi pair
+lib.zeropage('map_lo')
+lib.zeropage('map_hi')
+
 
 @lib.extern
 def vram_adr(translator, args):
@@ -54,6 +58,33 @@ def scroll(translator, args):
     translator.load_arg8_x(args[0])
     translator.load_arg8(args[1])
     translator.output.append('JSR scroll')
+
+
+@lib.extern
+def scroll_x(translator, args):
+    # scroll_x(x, nt): fine x scroll plus the nametable select bit,
+    # for cameras wider than one nametable (camera = nt*256 + x)
+    translator.load_arg8_x(args[0])
+    translator.load_arg8(args[1])
+    translator.output.append('JSR scroll_x')
+
+
+@lib.extern
+def stage_column(translator, args):
+    # stage_column(level, col): upload one 30-tile column of a stage
+    # to its nametable position (columns wrap over the two physical
+    # nametables)
+    if not isinstance(args[0], ast.Name):
+        raise NotImplementedError(
+            'stage_column expects a stage variable as first argument'
+        )
+    name = args[0].id
+    translator.output.append(f'LDA #LOW({name})')
+    translator.output.append('STA str_ptr')
+    translator.output.append(f'LDA #HIGH({name})')
+    translator.output.append('STA str_ptr_hi')
+    translator.load_arg8_x(args[1])
+    translator.output.append('JSR stage_col')
 
 
 @lib.extern
@@ -170,6 +201,98 @@ scroll:
   LDA $2002
   STX $2005
   STY $2005
+  RTS
+
+scroll_x:
+  ; X = fine x scroll, A = nametable index (bit 0 selects the NT)
+  AND #1
+  ORA #%10000000
+  STA $2000
+  LDA $2002
+  STX $2005
+  LDA #0
+  STA $2005
+  RTS
+
+stage_col:
+  ; X = column index, str_ptr = stage base (column-major, 30 b/col)
+  ; src pointer += col * 30 (30 = 2 + 4 + 8 + 16, via shifts)
+  STX num_lo
+  LDA #0
+  STA num_hi
+  ASL num_lo
+  ROL num_hi
+  LDA num_lo
+  STA map_lo
+  LDA num_hi
+  STA map_hi
+  ASL num_lo
+  ROL num_hi
+  LDA map_lo
+  CLC
+  ADC num_lo
+  STA map_lo
+  LDA map_hi
+  ADC num_hi
+  STA map_hi
+  ASL num_lo
+  ROL num_hi
+  LDA map_lo
+  CLC
+  ADC num_lo
+  STA map_lo
+  LDA map_hi
+  ADC num_hi
+  STA map_hi
+  ASL num_lo
+  ROL num_hi
+  LDA map_lo
+  CLC
+  ADC num_lo
+  STA map_lo
+  LDA map_hi
+  ADC num_hi
+  STA map_hi
+  LDA str_ptr
+  CLC
+  ADC map_lo
+  STA str_ptr
+  LDA str_ptr_hi
+  ADC map_hi
+  STA str_ptr_hi
+  ; dest: physical column = col AND 63 over the two nametables
+  TXA
+  AND #63
+  CMP #32
+  BCC stage_col_nt_a
+  AND #31
+  TAY
+  LDA #$24
+  JMP stage_col_set
+stage_col_nt_a:
+  TAY
+  LDA #$20
+stage_col_set:
+  ; A = VRAM high byte, Y = low byte
+  PHA
+  LDA #%00000100
+  STA $2000
+  LDA $2002
+  PLA
+  STA $2006
+  TYA
+  STA $2006
+  ; copy 30 bytes downwards (vertical increment)
+  LDY #0
+stage_col_loop:
+  LDA (str_ptr),Y
+  STA $2007
+  INY
+  CPY #30
+  BNE stage_col_loop
+  ; NMI users must call scroll_x afterwards to restore $2000
+  LDA #%00000000
+  STA $2000
   RTS
 
 ppu_on_all:

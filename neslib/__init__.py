@@ -43,6 +43,26 @@ def scroll(x, y):
     ppu.scroll = (x, y)
 
 
+def scroll_x(x, nt):
+    """Set the horizontal camera: fine x scroll plus the nametable
+    select bit (camera = nt*256 + x)."""
+    ppu.scroll = (x, 0)
+    ppu.ctrl = (ppu.ctrl & ~0x03) | (nt & 1)
+
+
+def stage_column(level, col):
+    """Upload one 30-tile stage column to its nametable position.
+    Columns wrap over the two physical nametables."""
+    rows = level['rows']
+    pad = 30 - len(rows)
+    pcol = col & 63
+    base = 0x2000 if pcol < 32 else 0x2400
+    x = pcol & 31
+    for row in range(30):
+        char = rows[row - pad][col] if row >= pad else '.'
+        ppu.vram[base + row * 32 + x] = 0 if char == '.' else 1
+
+
 def oam_clear():
     """Hide all sprites (move them below the visible screen)."""
     ppu.oam = bytearray(b'\xff' * 256)

@@ -254,3 +254,38 @@ class ScrollingScreenTest(TestCase):
         self.assertEqual(counts[1], 0)
         self.assertEqual(counts[2], BLOCK_PIXELS)
         self.assertEqual(counts[3], 0)
+
+
+@unittest.skipUnless(fceux_available(), 'fceux or display not available')
+class ScrollingLevelScreenTest(TestCase):
+    def test_camera_stops_at_the_end_of_the_level(self):
+        rom = build_demo_rom('scrolling_level.py')
+        # the camera advances 2 px/frame across 4 nametables and rests
+        # at 768: the screen then shows source columns 96..127, where
+        # the end platform sits at columns 116-123 (screen cells 20-27)
+        regions = [
+            char_cell(20, 20, 0),  # end platform, first block
+            char_cell(27, 20, 0),  # end platform, last block
+            char_cell(19, 20, 0),  # left of the platform: empty
+            char_cell(20, 19, 0),  # above the platform: empty
+            char_cell(0, 26, 0),  # ground, left edge
+            char_cell(31, 27, 0),  # ground, right edge
+            # the big '4' digit centered on the last nametable
+            # (block cells 13-17, rows 12-18)
+            char_cell(16, 12, 0),  # '...#.' top row: block
+            char_cell(13, 12, 0),  # '...#.' top row: empty
+            char_cell(13, 16, 0),  # '#####' middle bar: block
+            char_cell(17, 16, 0),  # '#####' middle bar: block
+        ]
+        counts, _ = run_screen_check(rom, regions, wait_frames=450)
+
+        self.assertEqual(counts[0], BLOCK_PIXELS)
+        self.assertEqual(counts[1], BLOCK_PIXELS)
+        self.assertEqual(counts[2], 0)
+        self.assertEqual(counts[3], 0)
+        self.assertEqual(counts[4], BLOCK_PIXELS)
+        self.assertEqual(counts[5], BLOCK_PIXELS)
+        self.assertEqual(counts[6], BLOCK_PIXELS)
+        self.assertEqual(counts[7], 0)
+        self.assertEqual(counts[8], BLOCK_PIXELS)
+        self.assertEqual(counts[9], BLOCK_PIXELS)
