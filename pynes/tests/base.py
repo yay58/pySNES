@@ -7,8 +7,14 @@ from nesasm.tests.bridge import Py65CPUBridge
 
 class CodeFilter(ast.NodeTransformer):
     def visit_Expr(self, node):
-        # TODO: check this
-        return None
+        # Drop assert calls (self.assert*), keep everything else
+        if (
+            isinstance(node.value, ast.Call)
+            and isinstance(node.value.func, ast.Attribute)
+            and node.value.func.attr.startswith('assert')
+        ):
+            return None
+        return node
 
     def visit_FunctionDef(self, node):
         if node.name.startswith('test_'):
@@ -54,7 +60,12 @@ def attach_test(code_tree, asserts_tree):
         self._execute(opcodes)
         context = {'self': self}
         for v in self.vars.values():
-            context[v.name] = self.cpu.memory_fetch(v.address)
+            if v.size > 1:
+                context[v.name] = [
+                    self.cpu.memory_fetch(v.address + i) for i in range(v.size)
+                ]
+            else:
+                context[v.name] = self.cpu.memory_fetch(v.address)
         executable = compile(asserts_tree, '<string>', 'exec')
         exec(executable, {}, context)  # nosec B102
 
@@ -88,7 +99,10 @@ class MetaNESTest(type):
             for var in self.vars.values():
                 self.labels[var.label] = var.address
                 # Initialize variable in CPU memory
-                if hasattr(var, 'initial_value'):
+                if isinstance(var.initial_value, list):
+                    for i, value in enumerate(var.initial_value):
+                        self.cpu.memory_set(var.address + i, value)
+                else:
                     self.cpu.memory_set(var.address, var.initial_value)
 
             # Generate assembly code
@@ -154,7 +168,7 @@ class MetaNESTest(type):
                 self.cpu.memory_set(addr, val)
             stop_addr = addr + 1
 
-            max_iterations = 1000  # Prevent infinite loops
+            max_iterations = 10000  # Prevent infinite loops
             iterations = 0
             while self.cpu.cpu.pc < stop_addr and iterations < max_iterations:
                 iterations += 1

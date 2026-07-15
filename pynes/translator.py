@@ -17,10 +17,56 @@ class Ident:
         self.assigns = 0
         self.address = None
         self.initial_value = None
+        self.size = 1
 
     @property
     def label(self):
         return self.name
+
+
+class _Renamer(ast.NodeTransformer):
+    def __init__(self, mapping):
+        self.mapping = mapping
+
+    def visit_Name(self, node):
+        if node.id in self.mapping:
+            node.id = self.mapping[node.id]
+        return node
+
+
+class ScopeMangler(ast.NodeTransformer):
+    """Renames function parameters and local variables to
+    '<function>_<name>' so every function gets statically allocated,
+    collision-free variable slots (no software stack)."""
+
+    def visit_FunctionDef(self, node):
+        local = {arg.arg for arg in node.args.args}
+        for stmt in ast.walk(node):
+            if isinstance(stmt, ast.Assign):
+                for target in stmt.targets:
+                    if isinstance(target, ast.Name):
+                        local.add(target.id)
+                    elif isinstance(target, ast.Tuple):
+                        for elt in target.elts:
+                            if isinstance(elt, ast.Name):
+                                local.add(elt.id)
+            elif isinstance(stmt, ast.AugAssign) and isinstance(
+                stmt.target, ast.Name
+            ):
+                local.add(stmt.target.id)
+            elif isinstance(stmt, ast.For) and isinstance(
+                stmt.target, ast.Name
+            ):
+                local.add(stmt.target.id)
+        mapping = {name: f'{node.name}_{name}' for name in local}
+        renamer = _Renamer(mapping)
+        for arg in node.args.args:
+            arg.arg = mapping[arg.arg]
+        node.body = [renamer.visit(stmt) for stmt in node.body]
+        return node
+
+
+TEMP_VARS = ('temp_var', 'temp_left', 'temp_right', 'temp_mul')
 
 
 class VarTable(ast.NodeVisitor):
@@ -36,6 +82,11 @@ class VarTable(ast.NodeVisitor):
         self.get_var(node.id)
         # return super().visit_Assign(node)
 
+    def visit_Call(self, node: ast.Call):
+        # Function names are labels, not variables
+        for arg in node.args:
+            self.visit(arg)
+
     def visit_Assign(self, node: ast.Assign):
         # Handle single and multiple assignments
         for target in node.targets:
@@ -45,6 +96,10 @@ class VarTable(ast.NodeVisitor):
                     name = elt.id
                     var = self.get_var(name)
                     var.assigns += 1
+            elif isinstance(target, ast.Subscript):
+                var = self.get_var(target.value.id)
+                var.assigns += 1
+                self.visit(target.slice)
             else:
                 # Handle single assignment
                 name = target.id
@@ -52,33 +107,44 @@ class VarTable(ast.NodeVisitor):
                 var.assigns += 1
                 if isinstance(node.value, ast.Constant):
                     var.initial_value = node.value.value
-        # return super().visit_Assign(node)
+                elif isinstance(node.value, ast.List):
+                    var.size = len(node.value.elts)
+                    var.initial_value = [elt.value for elt in node.value.elts]
+        self.visit(node.value)
 
     def visit_AugAssign(self, node: ast.AugAssign):
         self.get_var(node.target.id).assigns += 1
+        self.visit(node.value)
 
     def locate(self, python_code):
         self.vars = {}
-        tree = ast.parse(python_code)
+        tree = ScopeMangler().visit(ast.parse(python_code))
         self.generic_visit(tree)
+        for temp in TEMP_VARS:
+            self.get_var(temp)
         address = 0x00
         for name, value in self.vars.items():
             value.address = address
-            address += 1
+            address += value.size
         return self.vars
 
 
 class PythonTo6502:
-    def __init__(self):
+    def __init__(self, libraries=None):
         self.output = []
         self.label_count = 0
         self.loop_end_labels = []
         self.loop_continue_labels = []
         self.debug_comment = True
+        self.externs = {}
+        self.functions = {}
+        for library in libraries or []:
+            self.externs.update(library.externs)
 
     def translate(self, python_code):
-        # Parse Python code into an AST
-        tree = ast.parse(python_code)
+        # Parse Python code into an AST, mangling function scopes
+        tree = ScopeMangler().visit(ast.parse(python_code))
+        ast.fix_missing_locations(tree)
 
         # Traverse the AST and generate 6502 assembly code
         self.visit(tree)
@@ -103,6 +169,104 @@ class PythonTo6502:
             f'Visit method not implemented for {type(node).__name__}'
         )
 
+    def visit_Expr(self, node):
+        self.visit(node.value)
+
+    def visit_Pass(self, node):
+        pass
+
+    @debug_comment
+    def visit_Call(self, node):
+        if not isinstance(node.func, ast.Name):
+            raise NotImplementedError('Only direct calls are supported')
+        name = node.func.id
+        if name in self.externs:
+            self.externs[name](self, node.args)
+        elif name in self.functions:
+            params = self.functions[name]
+            if len(node.args) != len(params):
+                raise NotImplementedError(
+                    f'{name}() takes {len(params)} arguments '
+                    f'({len(node.args)} given)'
+                )
+            for arg, param in zip(node.args, params):
+                self._eval_to_a(arg)
+                self.output.append(f'STA {param}')
+            self.output.append(f'JSR {name}')
+        else:
+            raise NotImplementedError(f'Unknown function {name!r}')
+
+    def _eval_to_a(self, node):
+        """Evaluate an expression, leaving the result in the A register."""
+        if isinstance(node, ast.Constant):
+            self.output.append(f'LDA #{node.value}')
+        elif isinstance(node, ast.Name):
+            self.output.append(f'LDA {node.id}')
+        else:
+            # BinOp, Subscript and Call all leave their result in A
+            self.visit(node)
+
+    def _load_index(self, index, register='X'):
+        """Load an array index into the X or Y register."""
+        if isinstance(index, ast.Constant):
+            self.output.append(f'LD{register} #{index.value}')
+        elif isinstance(index, ast.Name):
+            self.output.append(f'LD{register} {index.id}')
+        else:
+            raise NotImplementedError(
+                'Only constant or variable array indexes are supported'
+            )
+
+    def visit_Subscript(self, node):
+        """Load an array element into the A register."""
+        if not isinstance(node.value, ast.Name):
+            raise NotImplementedError('Only named arrays are supported')
+        self._load_index(node.slice, 'X')
+        self.output.append(f'LDA {node.value.id},X')
+
+    @debug_comment
+    def visit_FunctionDef(self, node):
+        self.output.append(f'{node.name}:')
+        for stmt in node.body:
+            self.visit(stmt)
+        if not (node.body and isinstance(node.body[-1], ast.Return)):
+            self.output.append('RTS')
+
+    @debug_comment
+    def visit_Return(self, node):
+        if node.value is not None:
+            self._eval_to_a(node.value)
+        self.output.append('RTS')
+
+    def load_arg8(self, arg):
+        """Load an 8-bit argument into the A register."""
+        if isinstance(arg, ast.Constant):
+            self.output.append(f'LDA #{arg.value}')
+        elif isinstance(arg, ast.Name):
+            self.output.append(f'LDA {arg.id}')
+        else:
+            raise NotImplementedError('Unsupported argument expression')
+
+    def load_arg16(self, arg):
+        """Load a 16-bit argument into X (high byte) and A (low byte)."""
+        if isinstance(arg, ast.Constant):
+            value = arg.value
+            self.output.append(f'LDX #{(value >> 8) & 0xFF}')
+            self.output.append(f'LDA #{value & 0xFF}')
+        else:
+            raise NotImplementedError(
+                '16-bit variable arguments are not supported yet'
+            )
+
+    def load_arg8_x(self, arg):
+        """Load an 8-bit argument into the X register."""
+        if isinstance(arg, ast.Constant):
+            self.output.append(f'LDX #{arg.value}')
+        elif isinstance(arg, ast.Name):
+            self.output.append(f'LDX {arg.id}')
+        else:
+            raise NotImplementedError('Unsupported argument expression')
+
     def visit_Name(self, node):
         # Handle memory location access
         if node.id.startswith('mem_'):
@@ -123,21 +287,33 @@ class PythonTo6502:
         if len(ops) == 1 and len(comparators) == 1:
             comparator = comparators[0]
 
+            # Load the left operand into A
             if isinstance(left, ast.Name):
-                if isinstance(comparator, ast.Constant):
-                    self.output.append(f'LDA {left.id}')
-                    self.output.append(f'CMP #{comparator.value}')
-                elif isinstance(comparator, ast.Name):
-                    self.output.append(f'LDA {left.id}')
-                    self.output.append(f'CMP {comparator.id}')
-                else:
-                    raise NotImplementedError(
-                        'Unsupported comparison value type'
-                    )
+                self.output.append(f'LDA {left.id}')
+            elif isinstance(left, ast.Subscript):
+                self.visit_Subscript(left)
+            elif isinstance(left, ast.Call):
+                # Call leaves its return value in A
+                self.visit(left)
             else:
                 raise NotImplementedError(
                     'Unsupported comparison left operand type'
                 )
+
+            # Compare against the right operand
+            if isinstance(comparator, ast.Constant):
+                self.output.append(f'CMP #{comparator.value}')
+            elif isinstance(comparator, ast.Name):
+                self.output.append(f'CMP {comparator.id}')
+            elif isinstance(comparator, ast.Subscript):
+                if not isinstance(comparator.value, ast.Name):
+                    raise NotImplementedError(
+                        'Only named arrays are supported'
+                    )
+                self._load_index(comparator.slice, 'Y')
+                self.output.append(f'CMP {comparator.value.id},Y')
+            else:
+                raise NotImplementedError('Unsupported comparison value type')
         else:
             raise NotImplementedError('Unsupported comparison')
 
@@ -146,12 +322,55 @@ class PythonTo6502:
         for stmt in ast.walk(node):
             for child in ast.iter_child_nodes(stmt):
                 setattr(child, '_parent', stmt)
-        # Visit all statements
+
+        # Register user-defined functions first so calls can resolve
+        functions = [
+            stmt for stmt in node.body if isinstance(stmt, ast.FunctionDef)
+        ]
+        for function in functions:
+            self.functions[function.name] = [
+                arg.arg for arg in function.args.args
+            ]
+
+        # Visit the main flow
         for stmt in node.body:
-            self.visit(stmt)
+            if not isinstance(stmt, ast.FunctionDef):
+                self.visit(stmt)
+
+        # Emit function bodies after the main flow, jumping over them
+        if functions:
+            end_label = self._generate_label()
+            self.output.append(f'JMP {end_label}')
+            for function in functions:
+                self.visit(function)
+            self.output.append(f'{end_label}:')
+            self.output.append('NOP')
 
     @debug_comment
     def visit_Assign(self, node):
+        # Handle array element assignment: arr[i] = value
+        if isinstance(node.targets[0], ast.Subscript):
+            target = node.targets[0]
+            if not isinstance(target.value, ast.Name):
+                raise NotImplementedError('Only named arrays are supported')
+            self._eval_to_a(node.value)
+            self._load_index(target.slice, 'X')
+            self.output.append(f'STA {target.value.id},X')
+            return
+
+        # Handle array literal assignment: arr = [1, 2, 3]
+        if isinstance(node.value, ast.List):
+            array_name = node.targets[0].id
+            for i, elt in enumerate(node.value.elts):
+                if not isinstance(elt, ast.Constant):
+                    raise NotImplementedError(
+                        'Only constant array literals are supported'
+                    )
+                self.output.append(f'LDA #{elt.value}')
+                self.output.append(f'LDX #{i}')
+                self.output.append(f'STA {array_name},X')
+            return
+
         # Handle memory location assignment first
         if not isinstance(node.targets[0], ast.Tuple) and node.targets[
             0
@@ -203,8 +422,8 @@ class PythonTo6502:
         var_name = node.target.id
 
         # Handle complex expressions in the value
-        if isinstance(node.value, ast.BinOp):
-            # Visit the binary operation first
+        if isinstance(node.value, (ast.BinOp, ast.Subscript, ast.Call)):
+            # Visit the expression first (result lands in A)
             self.visit(node.value)
             # Store result in temp variable
             self.output.append('STA temp_var')
@@ -398,8 +617,30 @@ class PythonTo6502:
         # Get parent context to find where to store the result
         parent = getattr(node, '_parent', None)
         target_var = None
-        if isinstance(parent, ast.Assign):
+        if isinstance(parent, ast.Assign) and isinstance(
+            parent.targets[0], ast.Name
+        ):
             target_var = parent.targets[0].id
+
+        # Handle multiplication by repeated addition
+        if isinstance(node.op, ast.Mult):
+            mul_loop = self._generate_label()
+            mul_end = self._generate_label()
+            self.output.append(f'LDA {left_value}')
+            self.output.append('STA temp_mul')
+            self.output.append(f'LDX {right_value}')
+            self.output.append('LDA #0')
+            self.output.append(f'{mul_loop}:')
+            self.output.append('CPX #0')
+            self.output.append(f'BEQ {mul_end}')
+            self.output.append('CLC')
+            self.output.append('ADC temp_mul')
+            self.output.append('DEX')
+            self.output.append(f'JMP {mul_loop}')
+            self.output.append(f'{mul_end}:')
+            if target_var:
+                self.output.append(f'STA {target_var}')
+            return
 
         # Load left value and perform operation
         self.output.append(f'LDA {left_value}')
@@ -502,8 +743,12 @@ class PythonTo6502:
             )
 
     def _test_branch_false(self, test, false_label):
-        """Emit a condition (Compare or BoolOp) branching to false_label
-        when it fails; otherwise execution falls through."""
+        """Emit a condition (Compare, BoolOp or not-Compare) branching to
+        false_label when it fails; otherwise execution falls through."""
+        if isinstance(test, ast.UnaryOp) and isinstance(test.op, ast.Not):
+            # 'not X' fails exactly when X succeeds
+            self._branch_if_true(test.operand, false_label)
+            return
         if isinstance(test, ast.BoolOp):
             if isinstance(test.op, ast.And):
                 # For AND, every condition must hold; any failure goes
@@ -563,8 +808,8 @@ class PythonTo6502:
             self.output.append('NOP')
             return
 
-        # Handle simple comparisons
-        self._branch_if_false(node.test, false_label)
+        # Handle simple comparisons (including 'not')
+        self._test_branch_false(node.test, false_label)
 
         # Handle true block (fall-through case)
         for stmt in node.body:
@@ -596,11 +841,11 @@ class PythonTo6502:
         if isinstance(node.test, ast.Constant) and node.test.value is True:
             # while True - no condition check needed
             pass
-        elif isinstance(node.test, (ast.Compare, ast.BoolOp)):
+        elif isinstance(node.test, (ast.Compare, ast.BoolOp, ast.UnaryOp)):
             self._test_branch_false(node.test, end_label)
         else:
             raise NotImplementedError(
-                'Only comparisons, AND/OR and True constant '
+                'Only comparisons, AND/OR/NOT and True constant '
                 'supported in while'
             )
 

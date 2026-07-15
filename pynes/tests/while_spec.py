@@ -140,3 +140,79 @@ class WhileSpec:
 
         self.assertEqual(var_a, 3)
         self.assertEqual(var_b, 3)
+
+    def test_while_variable_comparison(self):
+        var_a = 0
+        var_b = 4
+
+        while var_a < var_b:
+            var_a += 1
+
+        self.assertEqual(var_a, 4)
+
+    def test_while_array_condition(self):
+        var_arr = [3, 2, 1, 0]
+        var_i = 0
+        var_sum = 0
+
+        while var_arr[var_i] > 0:
+            var_sum += var_arr[var_i]
+            var_i += 1
+
+        self.assertEqual(var_sum, 6)
+        self.assertEqual(var_i, 3)
+
+    def test_while_function_call_condition(self):
+        def next_value(n):
+            return n - 1
+
+        var_q = 5
+        var_steps = 0
+
+        while next_value(var_q) > 0:
+            var_q -= 1
+            var_steps += 1
+
+        self.assertEqual(var_q, 1)
+        self.assertEqual(var_steps, 4)
+
+    def test_while_not_condition(self):
+        var_done = 0
+        var_count = 0
+
+        while not var_done == 1:
+            var_count += 1
+            if var_count == 4:
+                var_done = 1
+
+        self.assertEqual(var_count, 4)
+
+    def test_break_in_nested_while(self):
+        var_i = 0
+        var_count = 0
+
+        while var_i < 3:
+            var_j = 0
+            while var_j < 10:
+                if var_j == 2:
+                    break
+                var_j += 1
+                var_count += 1
+            var_i += 1
+
+        self.assertEqual(var_count, 6)
+
+    def test_while_true_continue(self):
+        var_x = 0
+        var_y = 0
+
+        while True:
+            var_x += 1
+            if var_x == 3:
+                continue
+            var_y += 1
+            if var_x == 5:
+                break
+
+        self.assertEqual(var_x, 5)
+        self.assertEqual(var_y, 4)
