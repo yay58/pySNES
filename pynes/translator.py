@@ -501,24 +501,35 @@ class PythonTo6502:
                 f'Operator not supported {type(op).__name__}'
             )
 
+    def _test_branch_false(self, test, false_label):
+        """Emit a condition (Compare or BoolOp) branching to false_label
+        when it fails; otherwise execution falls through."""
+        if isinstance(test, ast.BoolOp):
+            if isinstance(test.op, ast.And):
+                # For AND, every condition must hold; any failure goes
+                # false
+                for value in test.values:
+                    self._branch_if_false(value, false_label)
+            elif isinstance(test.op, ast.Or):
+                # For OR, any condition holding goes true; only the last
+                # condition failing goes false
+                true_label = self._generate_label()
+                for value in test.values[:-1]:
+                    self._branch_if_true(value, true_label)
+                self._branch_if_false(test.values[-1], false_label)
+                self.output.append(f'{true_label}:')
+            else:
+                raise NotImplementedError(
+                    'Only AND/OR operators are supported'
+                )
+        else:
+            self._branch_if_false(test, false_label)
+
     @debug_comment
     def visit_BoolOp(self, node):
         """Handle boolean operations like AND/OR"""
         false_label = self._generate_label()
-        if isinstance(node.op, ast.And):
-            # For AND, every condition must hold; any failure goes false
-            for value in node.values:
-                self._branch_if_false(value, false_label)
-        elif isinstance(node.op, ast.Or):
-            # For OR, any condition holding goes true; only the last
-            # condition failing goes false
-            true_label = self._generate_label()
-            for value in node.values[:-1]:
-                self._branch_if_true(value, true_label)
-            self._branch_if_false(node.values[-1], false_label)
-            self.output.append(f'{true_label}:')
-        else:
-            raise NotImplementedError('Only AND/OR operators are supported')
+        self._test_branch_false(node, false_label)
         return false_label
 
     @debug_comment
@@ -585,55 +596,12 @@ class PythonTo6502:
         if isinstance(node.test, ast.Constant) and node.test.value is True:
             # while True - no condition check needed
             pass
-        elif isinstance(node.test, ast.Compare):
-            left = node.test.left
-            ops = node.test.ops
-            comparators = node.test.comparators
-
-            if len(ops) == 1 and len(comparators) == 1:
-                comparator = comparators[0]
-                op = ops[0]
-
-                # Load left value
-                if isinstance(left, ast.Name):
-                    self.output.append(f'LDA {left.id}')
-                elif isinstance(left, ast.Constant):
-                    self.output.append(f'LDA #{left.value}')
-
-                # Compare with right value
-                if isinstance(comparator, ast.Constant):
-                    self.output.append(f'CMP #{comparator.value}')
-                elif isinstance(comparator, ast.Name):
-                    self.output.append(f'CMP {comparator.id}')
-
-                # Branch to end if condition is false
-                if isinstance(op, ast.Lt):
-                    self.output.append(f'BCS {end_label}')
-                elif isinstance(op, ast.Gt):
-                    # For A > M, we need A > M which means A >= M AND A != M
-                    # Branch to end if A <= M
-                    self.output.append(
-                        f'BCC {end_label}'
-                    )  # Branch to end if A < M
-                    self.output.append(
-                        f'BEQ {end_label}'
-                    )  # Branch to end if A = M
-                elif isinstance(op, ast.GtE):
-                    self.output.append(f'BCC {end_label}')
-                elif isinstance(op, ast.LtE):
-                    body_label = self._generate_label()
-                    self.output.append(f'BEQ {body_label}')
-                    self.output.append(f'BCS {end_label}')
-                    self.output.append(f'{body_label}:')
-                elif isinstance(op, ast.Eq):
-                    self.output.append(f'BNE {end_label}')
-                elif isinstance(op, ast.NotEq):
-                    self.output.append(f'BEQ {end_label}')
-            else:
-                raise NotImplementedError('Multiple operators not supported')
+        elif isinstance(node.test, (ast.Compare, ast.BoolOp)):
+            self._test_branch_false(node.test, end_label)
         else:
             raise NotImplementedError(
-                'Only comparisons and True constant supported in while'
+                'Only comparisons, AND/OR and True constant '
+                'supported in while'
             )
 
         # Loop body
