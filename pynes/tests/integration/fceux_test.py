@@ -204,3 +204,53 @@ class SpriteScreenTest(TestCase):
         expected = sum(row.count('#') for row in BALL_ART)
         self.assertEqual(counts[0], expected)
         self.assertEqual(counts[1], 0)  # background is clean
+
+
+BLOCK_PIXELS = 28  # outline block: 8+8 full rows + 6 rows of 2 pixels
+
+
+@unittest.skipUnless(fceux_available(), 'fceux or display not available')
+class StageScreenTest(TestCase):
+    def test_stage_is_rendered(self):
+        rom = build_demo_rom('stage.py')
+        regions = [
+            char_cell(0, 26, 0),  # ground, first tile
+            char_cell(31, 27, 0),  # ground, last tile
+            char_cell(12, 20, 0),  # platform, first tile
+            char_cell(19, 20, 0),  # platform, last tile
+            char_cell(12, 19, 0),  # above the platform: empty
+            char_cell(20, 20, 0),  # right of the platform: empty
+        ]
+        counts, _ = run_screen_check(rom, regions)
+
+        self.assertEqual(counts[0], BLOCK_PIXELS)
+        self.assertEqual(counts[1], BLOCK_PIXELS)
+        self.assertEqual(counts[2], BLOCK_PIXELS)
+        self.assertEqual(counts[3], BLOCK_PIXELS)
+        self.assertEqual(counts[4], 0)
+        self.assertEqual(counts[5], 0)
+
+
+@unittest.skipUnless(fceux_available(), 'fceux or display not available')
+class ScrollingScreenTest(TestCase):
+    def test_camera_rests_scrolled(self):
+        rom = build_demo_rom('scrolling.py')
+        # the camera scrolls one pixel per frame and rests at x=100,
+        # so screen column p shows source column p+100
+        regions = [
+            # platform (source px 96-159) now shows at screen px -4..59:
+            # cell x=2 spans two adjacent blocks, still 28 lit pixels
+            char_cell(2, 20, 0),
+            # where the platform was drawn: source px 196-203 is empty
+            char_cell(12, 20, 0),
+            # ground is a full row: still solid after the shift
+            char_cell(0, 26, 0),
+            # above the platform: still empty
+            char_cell(2, 19, 0),
+        ]
+        counts, _ = run_screen_check(rom, regions)
+
+        self.assertEqual(counts[0], BLOCK_PIXELS)
+        self.assertEqual(counts[1], 0)
+        self.assertEqual(counts[2], BLOCK_PIXELS)
+        self.assertEqual(counts[3], 0)

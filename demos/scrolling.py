@@ -1,4 +1,14 @@
-from neslib import reset, pal_col, ppu_on_all, vram_adr, vram_put, NTADR_A
+from neslib import (
+    reset,
+    nmi,
+    nmi_on,
+    scroll,
+    pal_col,
+    ppu_on_all,
+    vram_adr,
+    vram_put,
+    NTADR_A,
+)
 from pynes.types import tile
 
 block = tile(
@@ -30,7 +40,18 @@ def main():
     for var_i in range(8):
         vram_put(block)
 
+    var_x = 0
+
     ppu_on_all()
+    nmi_on()
 
     while True:
         pass
+
+
+@nmi
+def frame():
+    # one pixel per frame until the camera rests at x=100
+    if var_x < 100:
+        var_x += 1
+        scroll(var_x, 0)

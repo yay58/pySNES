@@ -25,6 +25,8 @@ DEMOS = [
     'sorter_insertion.py',
     'sorter_bubble_animated.py',
     'sprite.py',
+    'stage.py',
+    'scrolling.py',
 ]
 
 
