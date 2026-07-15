@@ -72,7 +72,8 @@ class PythonTo6502:
     def __init__(self):
         self.output = []
         self.label_count = 0
-        self.context_loop_end_label = None
+        self.loop_end_labels = []
+        self.loop_continue_labels = []
         self.debug_comment = True
 
     def translate(self, python_code):
@@ -636,10 +637,12 @@ class PythonTo6502:
             )
 
         # Loop body
-        self.context_loop_end_label = end_label
+        self.loop_end_labels.append(end_label)
+        self.loop_continue_labels.append(start_label)
         for stmt in node.body:
             self.visit(stmt)
-        self.context_loop_end_label = None
+        self.loop_end_labels.pop()
+        self.loop_continue_labels.pop()
 
         # Jump back to start to check condition again
         self.output.append(f'JMP {start_label}')
@@ -648,11 +651,107 @@ class PythonTo6502:
         self.output.append(f'{end_label}:')
         self.output.append('NOP')  # No-op instead of BRK
 
+    @debug_comment
+    def visit_For(self, node):
+        # Only 'for <name> in range(...)' is supported
+        if (
+            not isinstance(node.iter, ast.Call)
+            or not isinstance(node.iter.func, ast.Name)
+            or node.iter.func.id != 'range'
+        ):
+            raise NotImplementedError('Only range() iteration is supported')
+        if not isinstance(node.target, ast.Name):
+            raise NotImplementedError(
+                'Only simple loop variables are supported'
+            )
+        if node.orelse:
+            raise NotImplementedError('for/else is not supported')
+
+        args = node.iter.args
+        if len(args) == 1:
+            start, stop, step = None, args[0], None
+        elif len(args) == 2:
+            start, stop, step = args[0], args[1], None
+        elif len(args) == 3:
+            start, stop, step = args[0], args[1], args[2]
+        else:
+            raise NotImplementedError('range() requires 1 to 3 arguments')
+
+        var_name = node.target.id
+        start_label = self._generate_label()
+        continue_label = self._generate_label()
+        end_label = self._generate_label()
+
+        # Initialize loop variable
+        if start is None:
+            self.output.append('LDA #0')
+        elif isinstance(start, ast.Constant):
+            self.output.append(f'LDA #{start.value}')
+        elif isinstance(start, ast.Name):
+            self.output.append(f'LDA {start.id}')
+        else:
+            raise NotImplementedError('Unsupported range() start')
+        self.output.append(f'STA {var_name}')
+
+        # Loop condition: exit when loop variable >= stop
+        self.output.append(f'{start_label}:')
+        self.output.append(f'LDA {var_name}')
+        if isinstance(stop, ast.Constant):
+            self.output.append(f'CMP #{stop.value}')
+        elif isinstance(stop, ast.Name):
+            self.output.append(f'CMP {stop.id}')
+        else:
+            raise NotImplementedError('Unsupported range() stop')
+        self.output.append(f'BCS {end_label}')
+
+        # Loop body
+        self.loop_end_labels.append(end_label)
+        self.loop_continue_labels.append(continue_label)
+        for stmt in node.body:
+            self.visit(stmt)
+        self.loop_end_labels.pop()
+        self.loop_continue_labels.pop()
+
+        # Increment loop variable by step
+        self.output.append(f'{continue_label}:')
+        if step is None:
+            self.output.append(f'INC {var_name}')
+        elif isinstance(step, ast.Constant):
+            if step.value <= 0:
+                raise NotImplementedError(
+                    'Only positive range() steps are supported'
+                )
+            if step.value == 1:
+                self.output.append(f'INC {var_name}')
+            else:
+                self.output.append(f'LDA {var_name}')
+                self.output.append('CLC')
+                self.output.append(f'ADC #{step.value}')
+                self.output.append(f'STA {var_name}')
+        elif isinstance(step, ast.Name):
+            self.output.append(f'LDA {var_name}')
+            self.output.append('CLC')
+            self.output.append(f'ADC {step.id}')
+            self.output.append(f'STA {var_name}')
+        else:
+            raise NotImplementedError('Unsupported range() step')
+        self.output.append(f'JMP {start_label}')
+
+        # End of loop
+        self.output.append(f'{end_label}:')
+        self.output.append('NOP')
+
     def visit_Break(self, node):
-        if self.context_loop_end_label is not None:
-            self.output.append(f'JMP {self.context_loop_end_label}')
+        if self.loop_end_labels:
+            self.output.append(f'JMP {self.loop_end_labels[-1]}')
         else:
             raise NotImplementedError('No loop to break')
+
+    def visit_Continue(self, node):
+        if self.loop_continue_labels:
+            self.output.append(f'JMP {self.loop_continue_labels[-1]}')
+        else:
+            raise NotImplementedError('No loop to continue')
 
     def visit_IfExp(self, node):
         """Handle ternary operators like: x = 2 if y == 1 else 3"""
