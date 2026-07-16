@@ -276,8 +276,12 @@ class Cart:
                 for char, tile_name in legend.items()
             }
             rom_data[name] = list(encode_stage(rows, legend_indexes))
-        if tile_indexes:
-            substituter = _ConstSubstituter(tile_indexes)
+        constants = {}
+        for library in self.libraries:
+            constants.update(library.constants)
+        constants.update(tile_indexes)
+        if constants:
+            substituter = _ConstSubstituter(constants)
             for node in list(entries.values()) + functions:
                 substituter.visit(node)
         variables = self._collect_vars(entries, functions)

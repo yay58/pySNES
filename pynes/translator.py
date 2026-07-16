@@ -974,7 +974,13 @@ class PythonTo6502:
             self.output.append(f'LDA {compare.id}')
             self.output.append(f'BEQ {false_label}')
             return
-        if not isinstance(compare, ast.Compare) or len(compare.ops) != 1:
+        if not isinstance(compare, ast.Compare):
+            # Truthiness of an expression (e.g. if pad & PAD_RIGHT:)
+            self._eval_to_a(compare)
+            self.output.append('CMP #0')
+            self.output.append(f'BEQ {false_label}')
+            return
+        if len(compare.ops) != 1:
             raise NotImplementedError('Unsupported condition')
         self.visit(compare)
         op = compare.ops[0]
@@ -1019,7 +1025,13 @@ class PythonTo6502:
             self.output.append(f'LDA {compare.id}')
             self.output.append(f'BNE {true_label}')
             return
-        if not isinstance(compare, ast.Compare) or len(compare.ops) != 1:
+        if not isinstance(compare, ast.Compare):
+            # Truthiness of an expression (e.g. if pad & PAD_RIGHT:)
+            self._eval_to_a(compare)
+            self.output.append('CMP #0')
+            self.output.append(f'BNE {true_label}')
+            return
+        if len(compare.ops) != 1:
             raise NotImplementedError('Unsupported condition')
         self.visit(compare)
         op = compare.ops[0]
