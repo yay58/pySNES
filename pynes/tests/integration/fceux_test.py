@@ -181,6 +181,30 @@ class SorterScreenTest(TestCase):
         # must have settled on the sorted result
         self._check('sorter_bubble_animated.py')
 
+    def test_generator_task_settles_sorted(self):
+        # the same animation written as a generator: yield suspends
+        # the sort until the next frame
+        self._check('sorter_generator.py')
+
+    def test_bubble_3_sort_as_function_matches(self):
+        # the sort externalized as a function receiving the array
+        self._check('sorter_bubble_3.py')
+
+    def test_generator_1_for_over_generator_matches(self):
+        # a for loop consumes the generator; besides the sorted row,
+        # the step and swap counters prove the yielded values arrived
+        rom = build_demo_rom('sorter_generator_1.py')
+        regions = [
+            text_region(13, 16, '12345'),
+            text_region(13, 20, '016'),
+            text_region(17, 20, '003'),
+        ]
+        counts, _ = run_screen_check(rom, regions)
+
+        self.assertEqual(counts[0], expected_lit_pixels('12345'))
+        self.assertEqual(counts[1], expected_lit_pixels('016'))
+        self.assertEqual(counts[2], expected_lit_pixels('003'))
+
 
 BALL_ART = [
     '..####..',
