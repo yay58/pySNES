@@ -466,6 +466,96 @@ class CartStageTest(TestCase):
         self.assertTrue(len(ast) > 0)
 
 
+ARRAY_PARAM_SOURCE = '''
+def fill(arr, value):
+    for var_i in range(5):
+        arr[var_i] = value
+
+@reset
+def main():
+    var_data = [0, 0, 0, 0, 0]
+    fill(var_data, 7)
+'''
+
+
+class CartArrayParamTest(TestCase):
+    """Array arguments bind at compile time: the call targets a
+    specialized copy of the function."""
+
+    def setUp(self):
+        from neslib.library import lib
+
+        self.cart = Cart(libraries=[lib])
+        self.asm = self.cart.compile(ARRAY_PARAM_SOURCE)
+
+    def test_call_targets_the_specialized_copy(self):
+        # the call binds the array at compile time
+        self.assertIn('JSR fill__var_data', self.asm)
+        self.assertIn('fill__var_data:', self.asm)
+
+    def test_body_operates_on_the_array_itself(self):
+        self.assertIn('STA var_data,X', self.asm)
+
+    def test_scalar_parameter_still_passed(self):
+        self.assertIn('STA fill__var_data_value', self.asm)
+
+    def test_unused_original_is_dropped(self):
+        self.assertNotIn('\nfill:', self.asm)
+
+    def test_parseable_by_nesasm(self):
+        tokens = lexical(self.asm)
+        ast = syntax(tokens)
+        self.assertTrue(len(ast) > 0)
+
+
+GENERATOR_SOURCE = '''
+def blink():
+    var_on = 1
+    yield
+    var_on = 0
+    yield
+
+@reset
+def main():
+    ppu_on_all()
+    nmi_on()
+
+@nmi
+def frame():
+    step(blink)
+'''
+
+
+class CartGeneratorTest(TestCase):
+    def setUp(self):
+        from neslib.library import lib
+
+        self.cart = Cart(libraries=[lib])
+        self.asm = self.cart.compile(GENERATOR_SOURCE)
+
+    def test_state_variable_allocated_and_zeroed_at_boot(self):
+        self.assertIn('blink__state .rs 1', self.asm)
+        self.assertIn('STA blink__state', self.asm)
+
+    def test_function_name_is_a_label_not_a_variable(self):
+        self.assertIn('blink:', self.asm)
+        self.assertNotIn('blink .rs', self.asm)
+
+    def test_dispatch_and_resume_points(self):
+        self.assertIn('JMP blink__begin', self.asm)
+        self.assertIn('JMP blink__resume_1', self.asm)
+        self.assertIn('JMP blink__resume_2', self.asm)
+        self.assertIn('blink__resume_2:', self.asm)
+
+    def test_step_calls_the_task(self):
+        self.assertIn('JSR blink', self.asm)
+
+    def test_parseable_by_nesasm(self):
+        tokens = lexical(self.asm)
+        ast = syntax(tokens)
+        self.assertTrue(len(ast) > 0)
+
+
 PAD_SOURCE = '''
 @reset
 def main():

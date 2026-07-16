@@ -1,4 +1,5 @@
 import ast
+import copy
 
 from nesasm.compiler import Cartridge, lexical, semantic, syntax
 
@@ -7,6 +8,8 @@ from pynes.translator import (
     PythonTo6502,
     ScopeMangler,
     VarTable,
+    _Renamer,
+    has_yield,
 )
 from pynes.chr import TILE_SIZE, encode_stage, encode_tile
 from pynes.types import CHR_TYPES, RAM_TYPES, ROM_TYPES
@@ -63,6 +66,47 @@ class CartVarTable(VarTable):
     def visit_Call(self, node):
         for arg in node.args:
             self.visit(arg)
+
+
+class _CallSpecializer(ast.NodeTransformer):
+    """Rewrites calls that pass arrays to user functions.
+
+    nesasm has no label arithmetic, so runtime array pointers are
+    impossible: instead every call site binds its arrays at compile
+    time, targeting a specialized copy of the function.
+    """
+
+    def __init__(self, functions, array_names):
+        self.functions = {f.name: f for f in functions}
+        self.array_names = array_names
+        self.requests = {}  # specialized name -> (function, {param: array})
+        self.plain_called = set()
+
+    def visit_Call(self, node):
+        self.generic_visit(node)
+        if not isinstance(node.func, ast.Name):
+            return node
+        function = self.functions.get(node.func.id)
+        if function is None:
+            return node
+        params = [arg.arg for arg in function.args.args]
+        array_args = {}
+        scalar_args = []
+        for param, arg in zip(params, node.args):
+            if isinstance(arg, ast.Name) and arg.id in self.array_names:
+                array_args[param] = arg.id
+            else:
+                scalar_args.append(arg)
+        if not array_args:
+            self.plain_called.add(function.name)
+            return node
+        specialized = function.name + ''.join(
+            f'__{name}' for name in array_args.values()
+        )
+        self.requests[specialized] = (function, array_args)
+        node.func.id = specialized
+        node.args = scalar_args
+        return node
 
 
 class Cart:
@@ -236,11 +280,95 @@ class Cart:
             translator.visit_FunctionDef(function)
         return translator.output[start:]
 
-    def _collect_vars(self, entries, functions=()):
+    @staticmethod
+    def _find_arrays(entries, functions, ram_vars, rom_data):
+        """Names bound to arrays: ROM data and every list literal
+        assigned in an entry point or function."""
+        names = set(rom_data)
+        names.update(n for n, size in ram_vars.items() if size > 2)
+        for node in list(entries.values()) + list(functions):
+            for stmt in ast.walk(node):
+                if (
+                    isinstance(stmt, ast.Assign)
+                    and isinstance(stmt.value, ast.List)
+                    and isinstance(stmt.targets[0], ast.Name)
+                ):
+                    names.add(stmt.targets[0].id)
+        return names
+
+    def _specialize_functions(self, entries, functions, array_names):
+        """Bind array arguments at compile time: each call passing an
+        array targets a specialized copy of the function with the
+        parameter replaced by the array itself. Locals (and generator
+        state) are renamed so every specialization stays isolated."""
+        specializer = _CallSpecializer(functions, array_names)
+        for node in list(entries.values()) + list(functions):
+            specializer.visit(node)
+        if not specializer.requests:
+            return functions, set()
+        # function names still referenced directly (plain calls, or
+        # task names passed to step()/reset_task()) keep the original
+        referenced = set(specializer.plain_called)
+        function_names = {f.name for f in functions}
+        for node in list(entries.values()) + list(functions):
+            for n in ast.walk(node):
+                if isinstance(n, ast.Name) and n.id in function_names:
+                    referenced.add(n.id)
+        specialized_names = {
+            function.name for function, _ in specializer.requests.values()
+        }
+        kept = [
+            function
+            for function in functions
+            if function.name in referenced
+            or function.name not in specialized_names
+        ]
+        removed = function_names - {function.name for function in kept}
+        specialized = [
+            self._specialize(function, name, array_args)
+            for name, (function, array_args) in specializer.requests.items()
+        ]
+        return kept + specialized, removed
+
+    @staticmethod
+    def _specialize(function, specialized, array_args):
+        new = copy.deepcopy(function)
+        prefix = f'{function.name}_'
+        mapping = dict(array_args)
+        for n in ast.walk(new):
+            if (
+                isinstance(n, ast.Name)
+                and n.id.startswith(prefix)
+                and n.id not in mapping
+            ):
+                mapping[n.id] = f'{specialized}_{n.id[len(prefix):]}'
+        new.name = specialized
+        new.args.args = [
+            arg for arg in new.args.args if arg.arg not in array_args
+        ]
+        for arg in new.args.args:
+            if arg.arg.startswith(prefix) and arg.arg not in mapping:
+                mapping[arg.arg] = f'{specialized}_{arg.arg[len(prefix):]}'
+            arg.arg = mapping.get(arg.arg, arg.arg)
+        _Renamer(mapping).visit(new)
+        return new
+
+    def _collect_vars(self, entries, functions=(), extra_labels=()):
         vartable = CartVarTable()
         for node in list(entries.values()) + list(functions):
             for stmt in node.body:
                 vartable.visit(stmt)
+        for function in functions:
+            # generator tasks keep their resume point in a state byte
+            if has_yield(function):
+                vartable.get_var(f'{function.name}__state').assigns += 1
+            # parameters are assigned by the caller
+            for arg in function.args.args:
+                vartable.get_var(arg.arg).assigns += 1
+            # function names are labels, not variables
+            vartable.vars.pop(function.name, None)
+        for label in extra_labels:
+            vartable.vars.pop(label, None)
         for temp in TEMP_VARS:
             vartable.get_var(temp)
         address = 0x00
@@ -284,10 +412,19 @@ class Cart:
             substituter = _ConstSubstituter(constants)
             for node in list(entries.values()) + functions:
                 substituter.visit(node)
-        variables = self._collect_vars(entries, functions)
+        array_names = self._find_arrays(
+            entries, functions, ram_vars, rom_data
+        )
+        functions, removed_functions = self._specialize_functions(
+            entries, functions, array_names
+        )
+        variables = self._collect_vars(entries, functions, removed_functions)
         translator = self._make_translator(functions)
         translator.uint16_vars = {
             name for name, size in ram_vars.items() if size == 2
+        }
+        translator.generator_funcs = {
+            function.name for function in functions if has_yield(function)
         }
 
         out = []
@@ -326,6 +463,16 @@ class Cart:
 
         out.append('RESET:')
         out.extend(RESET_PREAMBLE)
+        generator_states = [
+            f'{function.name}__state'
+            for function in functions
+            if has_yield(function)
+        ]
+        if generator_states:
+            # generator tasks start fresh (RAM is garbage on boot)
+            out.append('LDA #0')
+            for state in generator_states:
+                out.append(f'STA {state}')
         for name, value in ram_init.items():
             if ram_vars.get(name) == 2:
                 out.append(f'LDA #{value & 0xFF}')

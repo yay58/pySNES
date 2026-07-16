@@ -55,6 +55,31 @@ def scroll(x, y):
     ppu.scroll = (x, y)
 
 
+_tasks = {}
+
+
+def step(task):
+    """Resume a generator task: run it until its next yield. Returns
+    1 while the task is alive, 0 once it has finished. On the NES the
+    task compiles to a state machine; here it is a real generator."""
+    if task not in _tasks:
+        _tasks[task] = task()
+    gen = _tasks[task]
+    if gen is None:
+        return 0
+    try:
+        next(gen)
+        return 1
+    except StopIteration:
+        _tasks[task] = None
+        return 0
+
+
+def reset_task(task):
+    """Rewind a generator task to its beginning."""
+    _tasks.pop(task, None)
+
+
 def pad_poll():
     """Read the first controller: one byte with A in bit 7 down to
     Right in bit 0."""

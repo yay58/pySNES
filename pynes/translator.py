@@ -75,6 +75,12 @@ class ScopeMangler(ast.NodeTransformer):
         return node
 
 
+def has_yield(node):
+    """True when a function definition contains a yield, making it a
+    generator task (compiled into a resumable state machine)."""
+    return any(isinstance(n, ast.Yield) for n in ast.walk(node))
+
+
 TEMP_VARS = (
     'temp_var',
     'temp_left',
@@ -82,6 +88,7 @@ TEMP_VARS = (
     'temp_mul',
     'temp16_lo',
     'temp16_hi',
+    'yield_value',
 )
 
 
@@ -198,6 +205,7 @@ class PythonTo6502:
         self.externs = {}
         self.const_funcs = {}
         self.functions = {}
+        self.generator_funcs = set()
         for library in libraries or []:
             self.externs.update(library.externs)
             self.const_funcs.update(getattr(library, 'const_funcs', {}))
@@ -309,11 +317,68 @@ class PythonTo6502:
 
     @debug_comment
     def visit_FunctionDef(self, node):
+        if has_yield(node):
+            self._translate_generator(node)
+            return
         self.output.append(f'{node.name}:')
         for stmt in node.body:
             self.visit(stmt)
         if not (node.body and isinstance(node.body[-1], ast.Return)):
             self.output.append('RTS')
+
+    def _translate_generator(self, node):
+        """Compile a generator function into a resumable state machine.
+
+        A state byte selects where to continue: 0 runs the body from
+        the start, each yield k saves state k and returns, and the
+        dispatch resumes right after it on the next call. Locals are
+        statically allocated, so loops survive the suspension. The
+        routine leaves 1 in A while the task is alive and 0 once the
+        body runs to completion (driven one step at a time by step()).
+        """
+        name = node.name
+        state = f'{name}__state'
+        total = sum(isinstance(n, ast.Yield) for n in ast.walk(node))
+        self._generator = {'name': name, 'index': 0}
+        self.output.append(f'{name}:')
+        self.output.append(f'LDA {state}')
+        self.output.append(f'BNE {name}__d0')
+        self.output.append(f'JMP {name}__begin')
+        self.output.append(f'{name}__d0:')
+        for k in range(1, total + 1):
+            self.output.append(f'CMP #{k}')
+            self.output.append(f'BNE {name}__d{k}')
+            self.output.append(f'JMP {name}__resume_{k}')
+            self.output.append(f'{name}__d{k}:')
+        # exhausted (or unknown) state: report the task as finished
+        self.output.append('LDA #0')
+        self.output.append('RTS')
+        self.output.append(f'{name}__begin:')
+        for stmt in node.body:
+            self.visit(stmt)
+        # falling off the end finishes the task
+        self.output.append('LDA #255')
+        self.output.append(f'STA {state}')
+        self.output.append('LDA #0')
+        self.output.append('RTS')
+        self._generator = None
+
+    def visit_Yield(self, node):
+        if not getattr(self, '_generator', None):
+            raise NotImplementedError('yield outside a generator task')
+        self._generator['index'] += 1
+        index = self._generator['index']
+        name = self._generator['name']
+        # a yielded value is published in yield_value, where a
+        # 'for x in task(...):' loop picks it up
+        if node.value is not None:
+            self._eval_to_a(node.value)
+            self.output.append('STA yield_value')
+        self.output.append(f'LDA #{index}')
+        self.output.append(f'STA {name}__state')
+        self.output.append('LDA #1')
+        self.output.append('RTS')
+        self.output.append(f'{name}__resume_{index}:')
 
     @debug_comment
     def visit_Return(self, node):
@@ -1182,7 +1247,50 @@ class PythonTo6502:
 
     @debug_comment
     def visit_For(self, node):
+        # 'for <name> in <task>(...)' drives a generator task to
+        # completion, one iteration per yield
+        if (
+            isinstance(node.iter, ast.Call)
+            and isinstance(node.iter.func, ast.Name)
+            and node.iter.func.id in self.generator_funcs
+        ):
+            self._for_over_generator(node)
+            return
         # Only 'for <name> in range(...)' is supported
+        self._for_over_range(node)
+
+    def _for_over_generator(self, node):
+        """Drive a generator task to completion: each yield delivers
+        its value to the loop variable and runs the body once."""
+        if not isinstance(node.target, ast.Name):
+            raise NotImplementedError(
+                'Only simple loop variables are supported'
+            )
+        if node.orelse:
+            raise NotImplementedError('for/else is not supported')
+        name = node.iter.func.id
+        params = self.functions.get(name, [])
+        loop_label = self._generate_label()
+        body_label = self._generate_label()
+        end_label = self._generate_label()
+        self.output.append(f'{loop_label}:')
+        # scalar arguments are refreshed on every resume
+        for arg, param in zip(node.iter.args, params):
+            self._eval_to_a(arg)
+            self.output.append(f'STA {param}')
+        self.output.append(f'JSR {name}')
+        self.output.append('CMP #0')
+        self.output.append(f'BNE {body_label}')
+        self.output.append(f'JMP {end_label}')
+        self.output.append(f'{body_label}:')
+        self.output.append('LDA yield_value')
+        self.output.append(f'STA {node.target.id}')
+        for stmt in node.body:
+            self.visit(stmt)
+        self.output.append(f'JMP {loop_label}')
+        self.output.append(f'{end_label}:')
+
+    def _for_over_range(self, node):
         if (
             not isinstance(node.iter, ast.Call)
             or not isinstance(node.iter.func, ast.Name)

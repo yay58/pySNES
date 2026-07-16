@@ -83,6 +83,25 @@ def scroll(translator, args):
 
 
 @lib.extern
+def step(translator, args):
+    # step(task): resume a generator task until its next yield.
+    # Leaves 1 in A while the task is alive, 0 once it finished,
+    # so it can be used as a condition: if step(task): ...
+    if not isinstance(args[0], ast.Name):
+        raise NotImplementedError('step() expects a generator task name')
+    translator.output.append(f'JSR {args[0].id}')
+
+
+@lib.extern
+def reset_task(translator, args):
+    # reset_task(task): rewind a generator task to its beginning
+    if not isinstance(args[0], ast.Name):
+        raise NotImplementedError('reset_task() expects a generator task name')
+    translator.output.append('LDA #0')
+    translator.output.append(f'STA {args[0].id}__state')
+
+
+@lib.extern
 def pad_poll(translator, args):
     # pad_poll(): leaves the controller byte in A (and pad_state),
     # so it can be assigned: var_pad = pad_poll()
