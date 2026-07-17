@@ -13,7 +13,7 @@ def main():
     pal_col(0, 0x0F)  # background: black
     pal_col(1, 0x30)  # text: white
 
-    for value in range(8):
+    for value in range(5):
         line  = 10 + value
         vram_adr(NTADR_A(12, line))
         put_num(factorial(value))

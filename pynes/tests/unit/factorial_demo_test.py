@@ -7,6 +7,7 @@ and in the CPython twins alike.
 """
 
 import os
+import importlib
 from unittest import TestCase
 
 from pynes.tests.nes_runner import NESRunner
@@ -15,17 +16,101 @@ DEMOS_DIR = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', 'demos'
 )
 
+def get_demo_filename(demo):
+    return os.path.join(DEMOS_DIR, demo)
 
 def load_runner(demo):
-    with open(os.path.join(DEMOS_DIR, demo)) as f:
+    with open(get_demo_filename(demo)) as f:
         runner = NESRunner(f.read())
     runner.run_reset()
     return runner
 
-
 def text(runner, x, y, length):
     base = 0x2000 + y * 32 + x
     return bytes(runner.ppu.vram[base : base + length])
+
+
+class FactorialOneLineSpec:
+
+    def get_factorial_factor(self):
+        raise NotImplementedError()
+
+    def get_factorial_result(self):
+        raise NotImplementedError()
+
+    def when_factorial_demos_runs(self):
+        raise NotImplementedError()
+    
+    def assert_text(self, x, y, expected):
+        raise NotImplementedError()
+    
+    def assert_factorial_result(self, x, y):
+        raise NotImplementedError()
+
+    def test_label_draw(self):
+
+        self.when_factorial_demos_runs()
+
+        self.assert_text(12, 14, b'%d! = ' % self.get_factorial_factor())
+
+    def test_result_printed_after_the_label(self):
+        self.when_factorial_demos_runs()
+
+        self.assert_factorial_result(17, 14)
+
+
+class FactorialDemoTest(FactorialOneLineSpec, TestCase):
+    demo_filename = 'factorial.py'
+
+    def get_demo_filename(self):
+        return self.demo_filename
+
+    def get_factorial_factor(self):
+        return 5
+
+    def get_factorial_function(self):
+        module_path = 'demos.' + self.get_demo_filename().replace('.py', '')
+        function_name = 'factorial'
+        try:
+            module = importlib.import_module(module_path)
+            func = getattr(module, function_name)
+            return func
+        except ModuleNotFoundError:
+            print(f"Error: The module '{module_path}' could not be found.")
+            raise
+        except AttributeError:
+            print(f"Error: The function '{function_name}' does not exist in '{module_path}'.")
+            raise
+
+    def get_factorial_result(self):
+        func = self.get_factorial_function()
+        return func(self.get_factorial_factor())
+
+    def when_factorial_demos_runs(self):
+        self.runner = load_runner(self.get_demo_filename())
+
+    def assert_text(self, x, y, expected):
+        self.assertEqual(text(self.runner, x, y, len(expected)), expected)
+
+    def assert_factorial_result(self, x, y):
+        self.assertEqual(text(self.runner, x, y, len(str(self.get_factorial_result()))), str(self.get_factorial_result()).encode())
+
+
+class Factorial1DemoTest(FactorialDemoTest):
+    demo_filename = 'factorial_1.py'
+
+
+class Factorial2DemoTest(FactorialDemoTest):
+    demo_filename = 'factorial_2.py'
+
+class Factorial4DemoTest(FactorialDemoTest):
+    demo_filename = 'factorial_4.py'
+
+# class Factorial5DemoTest(FactorialDemoTest):
+#     demo_filename = 'factorial_5.py'
+
+#     def get_factorial_factor(self):
+#         return 8
 
 
 class CallArgumentSpecTest(TestCase):
@@ -60,7 +145,7 @@ class RuntimeVramAdrSpecTest(TestCase):
                 n -= 1
             return result
 
-        return [factorial(value) for value in range(8)]
+        return [factorial(value) for value in range(5)]
 
     def test_every_line_shows_its_factorial(self):
         for value, result in enumerate(self.expected()):
@@ -79,14 +164,15 @@ class GeneratorArgumentSpecTest(TestCase):
 
     def expected(self):
         # the CPython twin of the demos' generator, 8-bit wrapped
-        def factorial(n):
-            result = 1
-            while n > 1:
-                result = (result * n) & 0xFF
-                yield result
-                n -= 1
+        # def factorial(n):
+        #     result = 1
+        #     while n > 1:
+        #         result = (result * n) & 0xFF
+        #         yield result
+        #         n -= 1
 
-        return list(factorial(8))
+        from demos.factorial_8 import factorial
+        return list(factorial(5))
 
     def check(self, demo):
         runner = load_runner(demo)

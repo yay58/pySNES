@@ -16,7 +16,7 @@ def main():
         var_f = var_f * var_n
         var_n -= 1
 
-    put_str(NTADR_A(11, 14), label)
+    put_str(NTADR_A(12, 14), label)
     put_num16(var_f)
 
     ppu_on_all()
