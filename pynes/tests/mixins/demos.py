@@ -3,7 +3,10 @@ import importlib
 from functools import lru_cache
 
 from pynes.tests.nes_runner import NESRunner
-from pynes.tests.factorial_demo_spec import FactorialOneLineSpec
+from pynes.tests.factorial_demo_spec import (
+    FactorialOneLineSpec,
+    FactorialMultilineSpec,
+)
 
 
 DEMOS_DIR = os.path.join(
@@ -33,41 +36,49 @@ def text(runner, x, y, length):
     return bytes(runner.ppu.vram[base : base + length])
 
 
-class AbstractFactorialOneLine(FactorialOneLineSpec):
+class AbstractFactorialBase:
+
+    def get_demo_filename(self):
+        return self.demo_filename
+
+    def get_demo_module(self):
+        return 'demos.' + self.get_demo_filename().replace('.py', '')
+
+    def get_demo_attribute(self, attr_name):
+        module_path = self.get_demo_module()
+        try:
+            module = importlib.import_module(module_path)
+            attr = getattr(module, attr_name)
+            return attr
+        except ModuleNotFoundError:
+            print(f"Error: The module '{module_path}' could not be found.")
+            raise
+        except AttributeError:
+            print(
+                f"Error: The attribute '{attr}' "
+                f"does not exist in '{module_path}'."
+            )
+            raise
+
+    def get_factorial_function(self):
+        return self.get_demo_attribute('factorial')
+
+    def get_factorial_result(self):
+        func = self.get_factorial_function()
+        return func(self.get_factorial_factor())
+
+
+class AbstractFactorialOneLine(AbstractFactorialBase, FactorialOneLineSpec):
     demo_filename = None
 
     @classmethod
     def setUpClass(cls):
         cls.runner = load_runner(cls.demo_filename)
 
-    def get_demo_filename(self):
-        return self.demo_filename
-
     def get_factorial_factor(self):
         return 5
 
-    def get_factorial_function(self):
-        module_path = 'demos.' + self.get_demo_filename().replace('.py', '')
-        function_name = 'factorial'
-        try:
-            module = importlib.import_module(module_path)
-            func = getattr(module, function_name)
-            return func
-        except ModuleNotFoundError:
-            print(f"Error: The module '{module_path}' could not be found.")
-            raise
-        except AttributeError:
-            print(
-                f"Error: The function '{function_name}' "
-                f"does not exist in '{module_path}'."
-            )
-            raise
-
-    def get_factorial_result(self):
-        func = self.get_factorial_function()
-        return func(self.get_factorial_factor())
-
-    def when_factorial_demos_runs(self):
+    def when_factorial_demo_runs(self):
         pass
 
     def assert_text(self, x, y, expected):
@@ -78,3 +89,35 @@ class AbstractFactorialOneLine(FactorialOneLineSpec):
             text(self.runner, x, y, len(str(self.get_factorial_result()))),
             str(self.get_factorial_result()).encode(),
         )
+
+
+class AbstractFactorialMultiline(
+    AbstractFactorialBase, FactorialMultilineSpec
+):
+    demo_filename = None
+
+    @classmethod
+    def setUpClass(cls):
+        cls.runner = load_runner(cls.demo_filename)
+
+    def get_factorial_factor(self):
+        return 5
+
+    def when_factorial_demo_runs(self):
+        pass
+
+    def expected_result(self):
+        func = self.get_factorial_function()
+        check = func(0)
+        if check.__class__.__name__ == 'generator':
+            return list(func(self.get_factorial_factor()))
+        return [func(value) for value in range(self.get_factorial_factor())]
+
+    def assert_each_line_has_its_factorial(self):
+        for index, result in enumerate(self.expected_result()):
+            line = 10 + index
+            self.assertEqual(
+                text(self.runner, 12, line, 3),
+                b'%03d' % result,
+                f'line {line} (factorial({index}))',
+            )

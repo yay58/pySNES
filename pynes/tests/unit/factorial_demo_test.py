@@ -9,6 +9,7 @@ and in the CPython twins alike.
 from unittest import TestCase
 
 from pynes.tests.mixins.demos import (
+    AbstractFactorialMultiline,
     AbstractFactorialOneLine,
     load_runner,
     text,
@@ -38,80 +39,13 @@ class Factorial4DemoTest(AbstractFactorialOneLine, TestCase):
 #         return 8
 
 
-class CallArgumentSpecTest(TestCase):
-    """factorial_4: the result of a user function call feeds put_num
-    directly, without an intermediate variable."""
-
-    @classmethod
-    def setUpClass(cls):
-        cls.runner = load_runner('factorial_4.py')
-
-    def test_label_drawn(self):
-        self.assertEqual(text(self.runner, 12, 14, 5), b'5! = ')
-
-    def test_result_printed_after_the_label(self):
-        self.assertEqual(text(self.runner, 17, 14, 3), b'120')
+class Factorial6DemoTest(AbstractFactorialMultiline, TestCase):
+    demo_filename = 'factorial_6.py'
 
 
-class RuntimeVramAdrSpecTest(TestCase):
-    """factorial_6: every loop iteration computes a nametable address
-    from a variable line before printing."""
-
-    @classmethod
-    def setUpClass(cls):
-        cls.runner = load_runner('factorial_6.py')
-
-    def expected(self):
-        # the CPython twin of the demo's factorial, 8-bit wrapped
-        def factorial(n):
-            result = 1
-            while n > 1:
-                result = (result * n) & 0xFF
-                n -= 1
-            return result
-
-        return [factorial(value) for value in range(5)]
-
-    def test_every_line_shows_its_factorial(self):
-        for value, result in enumerate(self.expected()):
-            line = 10 + value
-            self.assertEqual(
-                text(self.runner, 12, line, 3),
-                b'%03d' % result,
-                f'line {line} (factorial({value}))',
-            )
+class Factorial7DemoTest(AbstractFactorialMultiline, TestCase):
+    demo_filename = 'factorial_7.py'
 
 
-class GeneratorArgumentSpecTest(TestCase):
-    """factorial_7 and factorial_8: a for loop consumes a generator
-    taking a scalar argument, printing each yielded value on its own
-    computed line."""
-
-    def expected(self):
-        # the CPython twin of the demos' generator, 8-bit wrapped
-        # def factorial(n):
-        #     result = 1
-        #     while n > 1:
-        #         result = (result * n) & 0xFF
-        #         yield result
-        #         n -= 1
-
-        from demos.factorial_8 import factorial
-
-        return list(factorial(5))
-
-    def check(self, demo):
-        runner = load_runner(demo)
-        for i, result in enumerate(self.expected()):
-            line = 10 + i
-            self.assertEqual(
-                text(runner, 12, line, 3),
-                b'%03d' % result,
-                f'{demo} line {line}',
-            )
-
-    def test_factorial_7_yields_after_the_decrement(self):
-        self.check('factorial_7.py')
-
-    def test_factorial_8_yields_before_the_decrement(self):
-        self.check('factorial_8.py')
+class Factorial8DemoTest(AbstractFactorialMultiline, TestCase):
+    demo_filename = 'factorial_8.py'
