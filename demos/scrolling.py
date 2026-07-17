@@ -27,6 +27,8 @@ block = tile(
 
 @reset
 def main():
+    global var_x
+
     pal_col(0, 0x0F)  # background: black
     pal_col(1, 0x30)  # blocks: white
 
@@ -51,6 +53,8 @@ def main():
 
 @nmi
 def frame():
+    global var_x
+
     # one pixel per frame until the camera rests at x=100
     if var_x < 100:
         var_x += 1

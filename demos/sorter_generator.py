@@ -27,6 +27,7 @@ def sort_task():
 
 @reset
 def main():
+    global var_arr
 
     pal_col(0, 0x0F)  # background: black
     pal_col(1, 0x30)  # text: white

@@ -200,7 +200,8 @@ def main():
         )
 
     def test_put_num_call(self):
-        self.assertIn('LDA var_n', self.asm)
+        # var_n is a local of main, mangled like any function local
+        self.assertIn('LDA main_var_n', self.asm)
         self.assertIn('JSR put_num', self.asm)
 
     def test_runtime_linked(self):
@@ -220,6 +221,7 @@ var_big = uint16()
 
 @reset
 def main():
+    global var_big
     var_big = 40320
     put_num16(var_big)
 '''
@@ -287,12 +289,14 @@ class CartNmiAnimationTest(TestCase):
             '''
 @reset
 def main():
+    global var_i
     var_i = 0
     nmi_on()
     ppu_on_all()
 
 @nmi
 def frame():
+    global var_i
     var_i += 1
     scroll(0, 0)
 '''
@@ -466,6 +470,149 @@ class CartStageTest(TestCase):
         self.assertTrue(len(ast) > 0)
 
 
+class CartFunctionScopeTest(TestCase):
+    """Functions see the global context; unknown names are errors."""
+
+    def _compile(self, source):
+        from neslib.library import lib
+
+        return Cart(libraries=[lib]).compile(source)
+
+    def test_undefined_var_in_function_fails(self):
+        with self.assertRaises(NameError) as ctx:
+            self._compile(
+                '''
+def helper():
+    var_x = var_never_assigned + 1
+
+@reset
+def main():
+    helper()
+'''
+            )
+        self.assertIn('var_never_assigned', str(ctx.exception))
+
+    def test_undefined_var_in_entry_fails(self):
+        with self.assertRaises(NameError):
+            self._compile(
+                '''
+@reset
+def main():
+    var_x = var_missing
+'''
+            )
+
+    def test_function_reads_a_global(self):
+        # reading needs no global statement: a name not assigned
+        # locally falls through to the module scope, like Python
+        asm = self._compile(
+            '''
+var_total = 0
+
+def show():
+    var_copy = var_total + 1
+
+@reset
+def main():
+    global var_total
+    var_total = 5
+    show()
+'''
+        )
+        self.assertIn('show:', asm)
+        self.assertIn('LDA var_total', asm)
+        self.assertIn('STA show_var_copy', asm)
+
+    def test_assignment_without_global_is_local(self):
+        # assigning without a global statement declares a local,
+        # exactly like Python: main gets its own var_total
+        asm = self._compile(
+            '''
+var_total = 0
+
+@reset
+def main():
+    var_total = 5
+'''
+        )
+        self.assertIn('main_var_total .rs 1', asm)
+        self.assertIn('STA main_var_total', asm)
+
+    def test_global_statement_shares_state_between_entries(self):
+        asm = self._compile(
+            '''
+@reset
+def main():
+    global var_count
+    var_count = 0
+    nmi_on()
+    ppu_on_all()
+
+@nmi
+def frame():
+    global var_count
+    var_count += 1
+'''
+        )
+        self.assertIn('var_count .rs 1', asm)
+        self.assertNotIn('main_var_count', asm)
+        self.assertIn('INC var_count', asm)
+
+    def test_augmented_assignment_without_binding_fails(self):
+        # in Python this is an UnboundLocalError at runtime; the
+        # compiler reports it upfront
+        with self.assertRaises(UnboundLocalError) as ctx:
+            self._compile(
+                '''
+@reset
+def main():
+    global var_count
+    var_count = 0
+
+@nmi
+def frame():
+    var_count += 1
+'''
+            )
+        self.assertIn('var_count', str(ctx.exception))
+
+    def test_function_mutates_a_global_array(self):
+        # subscript stores do not rebind the name, so a function can
+        # mutate a global array in place (like Python)
+        asm = self._compile(
+            '''
+var_data = [0, 0, 0]
+
+def clear_first():
+    var_data[0] = 0
+
+@reset
+def main():
+    global var_data
+    var_data = [1, 2, 3]
+    clear_first()
+'''
+        )
+        self.assertIn('STA var_data,X', asm)
+
+    def test_locals_are_mangled_globals_are_not(self):
+        asm = self._compile(
+            '''
+var_shared = 0
+
+def helper():
+    var_local = var_shared + 1
+
+@reset
+def main():
+    helper()
+'''
+        )
+        self.assertIn('helper_var_local .rs 1', asm)
+        self.assertIn('var_shared .rs 1', asm)
+        self.assertNotIn('helper_var_shared', asm)
+
+
 ARRAY_PARAM_SOURCE = '''
 def fill(arr, value):
     for var_i in range(5):
@@ -489,15 +636,16 @@ class CartArrayParamTest(TestCase):
         self.asm = self.cart.compile(ARRAY_PARAM_SOURCE)
 
     def test_call_targets_the_specialized_copy(self):
-        # the call binds the array at compile time
-        self.assertIn('JSR fill__var_data', self.asm)
-        self.assertIn('fill__var_data:', self.asm)
+        # var_data is a local of main (mangled), and the call binds
+        # the array at compile time
+        self.assertIn('JSR fill__main_var_data', self.asm)
+        self.assertIn('fill__main_var_data:', self.asm)
 
     def test_body_operates_on_the_array_itself(self):
-        self.assertIn('STA var_data,X', self.asm)
+        self.assertIn('STA main_var_data,X', self.asm)
 
     def test_scalar_parameter_still_passed(self):
-        self.assertIn('STA fill__var_data_value', self.asm)
+        self.assertIn('STA fill__main_var_data_value', self.asm)
 
     def test_unused_original_is_dropped(self):
         self.assertNotIn('\nfill:', self.asm)

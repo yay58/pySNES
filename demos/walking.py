@@ -125,6 +125,7 @@ level = stage(
 
 @reset
 def main():
+    global var_x, var_nt, var_sub, var_col, var_pad
 
     pal_col(0, 0x0F)  # background: black
     pal_col(1, 0x30)  # blocks: white
@@ -154,6 +155,7 @@ def main():
 
 @nmi
 def frame():
+    global var_x, var_nt, var_sub, var_col, var_pad
 
     oam_dma()
     var_pad = pad_poll()

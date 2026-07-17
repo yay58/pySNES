@@ -146,10 +146,12 @@ class Cart:
         functions = []
         for node in tree.body:
             if isinstance(node, ast.FunctionDef):
+                # every function follows Python scoping: assignments
+                # are locals unless declared global
+                node = ScopeMangler().visit(node)
                 entry = self._entry_name(node)
                 if entry is None:
-                    # plain user-defined function, statically allocated
-                    functions.append(ScopeMangler().visit(node))
+                    functions.append(node)
                 else:
                     entries[entry] = node
             elif isinstance(node, (ast.Import, ast.ImportFrom)):
@@ -210,6 +212,17 @@ class Cart:
             ):
                 ram_vars[name] = 1
                 ram_init[name] = value.value
+            elif isinstance(value, ast.List):
+                # module-level array: RAM allocation plus initial
+                # values written at RESET
+                if not all(
+                    isinstance(elt, ast.Constant) for elt in value.elts
+                ):
+                    raise NotImplementedError(
+                        'Only constant array declarations are supported'
+                    )
+                ram_vars[name] = len(value.elts)
+                ram_init[name] = [elt.value for elt in value.elts]
             elif (
                 isinstance(value, ast.Call)
                 and isinstance(value.func, ast.Name)
@@ -281,11 +294,15 @@ class Cart:
         return translator.output[start:]
 
     @staticmethod
-    def _find_arrays(entries, functions, ram_vars, rom_data):
-        """Names bound to arrays: ROM data and every list literal
-        assigned in an entry point or function."""
+    def _find_arrays(entries, functions, ram_vars, ram_init, rom_data):
+        """Names bound to arrays: ROM data, module-level array
+        declarations, and every list literal assigned in an entry
+        point or function."""
         names = set(rom_data)
         names.update(n for n, size in ram_vars.items() if size > 2)
+        names.update(
+            n for n, value in ram_init.items() if isinstance(value, list)
+        )
         for node in list(entries.values()) + list(functions):
             for stmt in ast.walk(node):
                 if (
@@ -413,12 +430,20 @@ class Cart:
             for node in list(entries.values()) + functions:
                 substituter.visit(node)
         array_names = self._find_arrays(
-            entries, functions, ram_vars, rom_data
+            entries, functions, ram_vars, ram_init, rom_data
         )
         functions, removed_functions = self._specialize_functions(
             entries, functions, array_names
         )
         variables = self._collect_vars(entries, functions, removed_functions)
+        defined = set(ram_vars) | set(rom_data) | set(TEMP_VARS)
+        for name, var in variables.items():
+            if (
+                var.assigns == 0
+                and name not in defined
+                and not name.startswith('mem_')
+            ):
+                raise NameError(f'name {name!r} is not defined')
         translator = self._make_translator(functions)
         translator.uint16_vars = {
             name for name, size in ram_vars.items() if size == 2
@@ -444,7 +469,7 @@ class Cart:
             for name, size in library_ram.items():
                 out.append(f'{name} .rs {size}')
             for name, size in ram_vars.items():
-                if size == 2:
+                if size == 2 and not isinstance(ram_init.get(name), list):
                     # uint16: two adjacent labels, no label arithmetic
                     # in nesasm so the hi byte needs its own name
                     out.append(f'{name} .rs 1')
@@ -474,7 +499,12 @@ class Cart:
             for state in generator_states:
                 out.append(f'STA {state}')
         for name, value in ram_init.items():
-            if ram_vars.get(name) == 2:
+            if isinstance(value, list):
+                for i, item in enumerate(value):
+                    out.append(f'LDA #{item}')
+                    out.append(f'LDX #{i}')
+                    out.append(f'STA {name},X')
+            elif ram_vars.get(name) == 2:
                 out.append(f'LDA #{value & 0xFF}')
                 out.append(f'STA {name}')
                 out.append(f'LDA #{(value >> 8) & 0xFF}')

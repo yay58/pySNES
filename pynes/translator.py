@@ -45,28 +45,47 @@ class ScopeMangler(ast.NodeTransformer):
         if getattr(node, '_pynes_mangled', False):
             return node
         node._pynes_mangled = True
-        local = {arg.arg for arg in node.args.args}
+        # names declared global keep their module-level identity,
+        # exactly like Python
+        globals_declared = set()
+        for stmt in ast.walk(node):
+            if isinstance(stmt, ast.Global):
+                globals_declared.update(stmt.names)
+        bound = {arg.arg for arg in node.args.args}
+        augmented = set()
         for stmt in ast.walk(node):
             if isinstance(stmt, ast.Assign):
                 for target in stmt.targets:
                     if isinstance(target, ast.Name):
-                        local.add(target.id)
+                        bound.add(target.id)
                     elif isinstance(target, ast.Tuple):
                         for elt in target.elts:
                             if isinstance(elt, ast.Name):
-                                local.add(elt.id)
+                                bound.add(elt.id)
             elif isinstance(stmt, ast.AugAssign) and isinstance(
                 stmt.target, ast.Name
             ):
-                local.add(stmt.target.id)
+                augmented.add(stmt.target.id)
             elif isinstance(stmt, ast.AnnAssign) and isinstance(
                 stmt.target, ast.Name
             ):
-                local.add(stmt.target.id)
+                bound.add(stmt.target.id)
             elif isinstance(stmt, ast.For) and isinstance(
                 stmt.target, ast.Name
             ):
-                local.add(stmt.target.id)
+                bound.add(stmt.target.id)
+        # augmented assignment makes a name local (like Python); with
+        # no binding assignment it can never be initialized, which in
+        # Python is an UnboundLocalError at runtime
+        unbound = augmented - bound - globals_declared
+        if unbound:
+            name = sorted(unbound)[0]
+            raise UnboundLocalError(
+                f"local variable {name!r} referenced before "
+                f"assignment in {node.name!r} (assign it first, or "
+                f'declare it global)'
+            )
+        local = (bound | augmented) - globals_declared
         mapping = {name: f'{node.name}_{name}' for name in local}
         renamer = _Renamer(mapping)
         for arg in node.args.args:
@@ -140,15 +159,15 @@ class VarTable(ast.NodeVisitor):
                 # array subscripts, e.g. a[j], a[k] = a[k], a[j])
                 for elt in target.elts:
                     if isinstance(elt, ast.Subscript):
-                        var = self.get_var(elt.value.id)
-                        var.assigns += 1
+                        # a subscript store mutates the array but
+                        # does not bind the name (like Python)
+                        self.get_var(elt.value.id)
                         self.visit(elt.slice)
                     else:
                         var = self.get_var(elt.id)
                         var.assigns += 1
             elif isinstance(target, ast.Subscript):
-                var = self.get_var(target.value.id)
-                var.assigns += 1
+                self.get_var(target.value.id)
                 self.visit(target.slice)
             else:
                 # Handle single assignment
@@ -165,6 +184,16 @@ class VarTable(ast.NodeVisitor):
     def visit_AugAssign(self, node: ast.AugAssign):
         self.get_var(node.target.id).assigns += 1
         self.visit(node.value)
+
+    def visit_For(self, node: ast.For):
+        # the loop target is assigned by the loop itself
+        if isinstance(node.target, ast.Name):
+            self.get_var(node.target.id).assigns += 1
+        self.visit(node.iter)
+        for stmt in node.body:
+            self.visit(stmt)
+        for stmt in node.orelse:
+            self.visit(stmt)
 
     def visit_AnnAssign(self, node: ast.AnnAssign):
         if not isinstance(node.target, ast.Name):
@@ -242,6 +271,10 @@ class PythonTo6502:
         self.visit(node.value)
 
     def visit_Pass(self, node):
+        pass
+
+    def visit_Global(self, node):
+        # scoping is resolved by the ScopeMangler; no code to emit
         pass
 
     @debug_comment

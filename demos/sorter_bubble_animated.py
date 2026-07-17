@@ -13,6 +13,8 @@ from neslib import (
 
 @reset
 def main():
+    global var_arr, var_i, var_j
+
     pal_col(0, 0x0F)  # background: black
     pal_col(1, 0x30)  # text: white
 
@@ -39,6 +41,8 @@ def main():
 
 @nmi
 def frame():
+    global var_i, var_j
+
     # one bubble-sort step per vblank: the sort animates at 60 fps
     if var_i < 5:
         if var_arr[var_j] > var_arr[var_j + 1]:
