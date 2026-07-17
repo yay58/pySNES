@@ -452,10 +452,7 @@ class PythonTo6502:
             isinstance(arg, ast.Call)
             and isinstance(arg.func, ast.Name)
             and arg.func.id in self.const_funcs
-            and sum(
-                not isinstance(a, ast.Constant) for a in arg.args
-            )
-            == 1
+            and sum(not isinstance(a, ast.Constant) for a in arg.args) == 1
         )
 
     def _load_linear_const_call(self, arg):
