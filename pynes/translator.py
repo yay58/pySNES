@@ -459,10 +459,11 @@ class PythonTo6502:
         """Expand a const function called with one runtime argument.
 
         The function must be linear in that argument (f(v) = base +
-        slope * v, checked by probing) with a power-of-two slope, which
-        covers the nametable helpers: NTADR_A(x, y) advances 32 bytes
-        per row. The result lands in X (high) and A (low) via the
-        temp16 pair.
+        slope * (v % period), checked by probing the whole 8-bit
+        domain) with a power-of-two slope and period, which covers the
+        nametable helpers: NTADR_A(x, y) advances 32 bytes per row and
+        wraps at row 32 (tile coordinates are 5-bit fields). The
+        result lands in X (high) and A (low) via the temp16 pair.
         """
         func = self.const_funcs[arg.func.id]
         index = next(
@@ -478,13 +479,27 @@ class PythonTo6502:
 
         base = probe(0)
         slope = probe(1) - base
-        if slope <= 0 or slope & (slope - 1) or probe(2) - probe(1) != slope:
+        period = next(
+            (
+                candidate
+                for candidate in (2, 4, 8, 16, 32, 64, 128, 256)
+                if all(
+                    probe(v) == base + slope * (v % candidate)
+                    for v in range(256)
+                )
+            ),
+            None,
+        )
+        if slope <= 0 or slope & (slope - 1) or period is None:
             raise NotImplementedError(
                 f'{arg.func.id} is not linear with a power-of-two '
                 'slope in its runtime argument'
             )
         shift = slope.bit_length() - 1
         self._eval_to_a(arg.args[index])
+        if period < 256:
+            # wrap exactly like the compile-time fold would
+            self.output.append(f'AND #{period - 1}')
         self.output.append('STA temp16_lo')
         self.output.append('LDA #0')
         self.output.append('STA temp16_hi')

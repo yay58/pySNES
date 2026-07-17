@@ -38,6 +38,58 @@ class ConstFunctionTest(TestCase):
         self.assertIn('JSR poke16', asm)
 
 
+class RuntimeConstCallTest(TestCase):
+    """A const function called with one runtime argument expands to
+    runtime address math that behaves exactly like the compile-time
+    fold, including the masking of out-of-range tile coordinates."""
+
+    def _translate(self, source):
+        lib = Library('mylib')
+
+        @lib.const
+        def addr(x, y):
+            # NTADR_A twin: tile coordinates are 5-bit fields
+            return 0x2000 | ((y & 0x1F) << 5) | (x & 0x1F)
+
+        @lib.extern
+        def poke16(translator, args):
+            translator.load_arg16(args[0])
+            translator.output.append('JSR poke16')
+
+        translator = PythonTo6502(libraries=[lib])
+        return translator.translate(source)
+
+    def test_shift_add_against_the_folded_base(self):
+        asm = self._translate('var_y = 14\npoke16(addr(10, var_y))')
+        # base = addr(10, 0) = 0x200A: lo 10, hi 32; slope 32 = 5 shifts
+        self.assertEqual(asm.count('ASL temp16_lo'), 5)
+        self.assertEqual(asm.count('ROL temp16_hi'), 5)
+        self.assertIn('ADC #10', asm)
+        self.assertIn('ADC #32', asm)
+        self.assertIn('JSR poke16', asm)
+
+    def test_runtime_argument_masked_like_the_const_function(self):
+        # addr masks y & 0x1F: y = 40 must wrap to row 8, exactly as
+        # the compile-time fold would
+        asm = self._translate('var_y = 40\npoke16(addr(10, var_y))')
+        self.assertIn('AND #31', asm)
+
+    def test_non_linear_functions_are_rejected(self):
+        lib = Library('mylib')
+
+        @lib.const
+        def crooked(v):
+            return v * v
+
+        @lib.extern
+        def poke16(translator, args):
+            translator.load_arg16(args[0])
+
+        translator = PythonTo6502(libraries=[lib])
+        with self.assertRaises(NotImplementedError):
+            translator.translate('var_v = 3\npoke16(crooked(var_v))')
+
+
 class LibraryContractTest(TestCase):
     """The library contract: externs, runtime asm and entry points."""
 
