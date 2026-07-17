@@ -421,13 +421,9 @@ class PythonTo6502:
 
     def load_arg8(self, arg):
         """Load an 8-bit argument into the A register."""
-        arg = self._fold_const(arg)
-        if isinstance(arg, ast.Constant):
-            self.output.append(f'LDA #{arg.value}')
-        elif isinstance(arg, ast.Name):
-            self.output.append(f'LDA {arg.id}')
-        else:
-            raise NotImplementedError('Unsupported argument expression')
+        # any expression works: calls, subscripts and arithmetic all
+        # leave their result in A
+        self._eval_to_a(arg)
 
     def load_arg16(self, arg):
         """Load a 16-bit argument into X (high byte) and A (low byte)."""
@@ -436,10 +432,76 @@ class PythonTo6502:
             value = arg.value
             self.output.append(f'LDX #{(value >> 8) & 0xFF}')
             self.output.append(f'LDA #{value & 0xFF}')
+        elif isinstance(arg, ast.Name):
+            if arg.id in self.uint16_vars:
+                self.output.append(f'LDX {arg.id}__hi')
+            else:
+                self.output.append('LDX #0')
+            self.output.append(f'LDA {arg.id}')
+        elif self._is_linear_const_call(arg):
+            self._load_linear_const_call(arg)
         else:
             raise NotImplementedError(
                 '16-bit variable arguments are not supported yet'
             )
+
+    def _is_linear_const_call(self, arg):
+        """A const function call with exactly one runtime argument,
+        e.g. NTADR_A(12, line)."""
+        return (
+            isinstance(arg, ast.Call)
+            and isinstance(arg.func, ast.Name)
+            and arg.func.id in self.const_funcs
+            and sum(
+                not isinstance(a, ast.Constant) for a in arg.args
+            )
+            == 1
+        )
+
+    def _load_linear_const_call(self, arg):
+        """Expand a const function called with one runtime argument.
+
+        The function must be linear in that argument (f(v) = base +
+        slope * v, checked by probing) with a power-of-two slope, which
+        covers the nametable helpers: NTADR_A(x, y) advances 32 bytes
+        per row. The result lands in X (high) and A (low) via the
+        temp16 pair.
+        """
+        func = self.const_funcs[arg.func.id]
+        index = next(
+            i
+            for i, a in enumerate(arg.args)
+            if not isinstance(a, ast.Constant)
+        )
+
+        def probe(v):
+            values = [a.value for a in arg.args if isinstance(a, ast.Constant)]
+            values.insert(index, v)
+            return func(*values)
+
+        base = probe(0)
+        slope = probe(1) - base
+        if slope <= 0 or slope & (slope - 1) or probe(2) - probe(1) != slope:
+            raise NotImplementedError(
+                f'{arg.func.id} is not linear with a power-of-two '
+                'slope in its runtime argument'
+            )
+        shift = slope.bit_length() - 1
+        self._eval_to_a(arg.args[index])
+        self.output.append('STA temp16_lo')
+        self.output.append('LDA #0')
+        self.output.append('STA temp16_hi')
+        for _ in range(shift):
+            self.output.append('ASL temp16_lo')
+            self.output.append('ROL temp16_hi')
+        self.output.append('CLC')
+        self.output.append('LDA temp16_lo')
+        self.output.append(f'ADC #{base & 0xFF}')
+        self.output.append('STA temp16_lo')
+        self.output.append('LDA temp16_hi')
+        self.output.append(f'ADC #{(base >> 8) & 0xFF}')
+        self.output.append('TAX')
+        self.output.append('LDA temp16_lo')
 
     def load_arg8_x(self, arg):
         """Load an 8-bit argument into the X register."""
@@ -1306,11 +1368,14 @@ class PythonTo6502:
         loop_label = self._generate_label()
         body_label = self._generate_label()
         end_label = self._generate_label()
-        self.output.append(f'{loop_label}:')
-        # scalar arguments are refreshed on every resume
+        # calling a generator creates a fresh one with its arguments
+        # bound once, exactly like Python
+        self.output.append('LDA #0')
+        self.output.append(f'STA {name}__state')
         for arg, param in zip(node.iter.args, params):
             self._eval_to_a(arg)
             self.output.append(f'STA {param}')
+        self.output.append(f'{loop_label}:')
         self.output.append(f'JSR {name}')
         self.output.append('CMP #0')
         self.output.append(f'BNE {body_label}')
