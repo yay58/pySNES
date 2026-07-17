@@ -1,5 +1,6 @@
 import os
 import importlib
+from functools import lru_cache
 
 from pynes.tests.nes_runner import NESRunner
 from pynes.tests.factorial_demo_spec import FactorialOneLineSpec
@@ -14,9 +15,15 @@ def get_demo_filename(demo):
     return os.path.join(DEMOS_DIR, demo)
 
 
-def load_runner(demo):
+@lru_cache(maxsize=None)
+def get_runner(demo):
     with open(get_demo_filename(demo)) as f:
         runner = NESRunner(f.read())
+    return runner
+
+
+def load_runner(demo):
+    runner = get_runner(demo)
     runner.run_reset()
     return runner
 
@@ -28,6 +35,10 @@ def text(runner, x, y, length):
 
 class AbstractFactorialOneLine(FactorialOneLineSpec):
     demo_filename = None
+
+    @classmethod
+    def setUpClass(cls):
+        cls.runner = load_runner(cls.demo_filename)
 
     def get_demo_filename(self):
         return self.demo_filename
@@ -57,7 +68,7 @@ class AbstractFactorialOneLine(FactorialOneLineSpec):
         return func(self.get_factorial_factor())
 
     def when_factorial_demos_runs(self):
-        self.runner = load_runner(self.get_demo_filename())
+        pass
 
     def assert_text(self, x, y, expected):
         self.assertEqual(text(self.runner, x, y, len(expected)), expected)
