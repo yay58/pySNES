@@ -15,6 +15,11 @@ MAKERY_BASE_URL=https://raw.githubusercontent.com/${MAKERY_REPOSITORY}/master
 PYTHON_VERSION?=3.12
 PYTHON_MODULES=pynes
 
+IGNORE_ERRORS=W503,E203,F841
+FLAKE8_ARGS=--ignore=${IGNORE_ERRORS} --per-file-ignores=\*/__init__.py\:F401,F403
+PYCODESTYLE_ARGS=--ignore=${IGNORE_ERRORS}
+
+
 WGET=wget -q
 ifeq "true" "${PUBLIC_PROJECT}"
 GH_WGET=${WGET}
