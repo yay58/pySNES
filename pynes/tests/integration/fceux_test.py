@@ -131,8 +131,8 @@ class FactorialScreenTest(TestCase):
     def test_factorial_3_uint16_renders_40320(self):
         rom = build_demo_rom('factorial_3.py')
         text = '8! = 40320'
-        regions = [text_region(11, 14, text)]
-        regions += [char_cell(11, 14, 5 + i) for i in range(5)]
+        regions = [text_region(12, 14, text)]
+        regions += [char_cell(12, 14, 5 + i) for i in range(5)]
         counts, _ = run_screen_check(rom, regions)
 
         self.assertEqual(counts[0], expected_lit_pixels(text))
