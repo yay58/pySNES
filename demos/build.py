@@ -19,6 +19,7 @@ DEMOS = [
     'factorial_2.py',
     'factorial_3.py',
     'factorial_4.py',
+    'factorial_5.py',
     'factorial_6.py',
     'factorial_7.py',
     'factorial_8.py',

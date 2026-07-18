@@ -235,6 +235,7 @@ class PythonTo6502:
         self.const_funcs = {}
         self.functions = {}
         self.generator_funcs = set()
+        self.uint16_funcs = set()
         for library in libraries or []:
             self.externs.update(library.externs)
             self.const_funcs.update(getattr(library, 'const_funcs', {}))
@@ -353,11 +354,13 @@ class PythonTo6502:
         if has_yield(node):
             self._translate_generator(node)
             return
+        self._returns_uint16 = node.name in self.uint16_funcs
         self.output.append(f'{node.name}:')
         for stmt in node.body:
             self.visit(stmt)
         if not (node.body and isinstance(node.body[-1], ast.Return)):
             self.output.append('RTS')
+        self._returns_uint16 = False
 
     def _translate_generator(self, node):
         """Compile a generator function into a resumable state machine.
@@ -415,8 +418,32 @@ class PythonTo6502:
 
     @debug_comment
     def visit_Return(self, node):
+        if node.value is not None and getattr(
+            self, '_returns_uint16', False
+        ):
+            self._return_uint16(node.value)
+            return
         if node.value is not None:
             self._eval_to_a(node.value)
+        self.output.append('RTS')
+
+    def _return_uint16(self, value):
+        """Return 16 bits: A holds the low byte, X the high byte,
+        the same convention load_arg16 uses."""
+        value = self._fold_const(value)
+        if isinstance(value, ast.Constant):
+            self.output.append(f'LDX #{(value.value >> 8) & 0xFF}')
+            self.output.append(f'LDA #{value.value & 0xFF}')
+        elif isinstance(value, ast.Name):
+            if value.id in self.uint16_vars:
+                self.output.append(f'LDX {value.id}__hi')
+            else:
+                self.output.append('LDX #0')
+            self.output.append(f'LDA {value.id}')
+        else:
+            raise NotImplementedError(
+                'uint16 returns support constants and variables only'
+            )
         self.output.append('RTS')
 
     def load_arg8(self, arg):

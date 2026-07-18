@@ -175,9 +175,37 @@ def put_str(translator, args):
     translator.output.append('JSR put_str')
 
 
+def _is_uint16_expr(translator, arg):
+    """True when an expression carries 16 bits: a uint16 variable or
+    a call to a function returning uint16."""
+    if isinstance(arg, ast.Name):
+        return arg.id in translator.uint16_vars
+    return (
+        isinstance(arg, ast.Call)
+        and isinstance(arg.func, ast.Name)
+        and arg.func.id in translator.uint16_funcs
+    )
+
+
 @lib.extern
 def put_num(translator, args):
-    translator.load_arg8(args[0])
+    # polymorphic like print: the width of the argument decides
+    # which runtime renders it
+    arg = args[0]
+    if _is_uint16_expr(translator, arg):
+        if isinstance(arg, ast.Name):
+            translator.output.append(f'LDA {arg.id}')
+            translator.output.append('STA num_lo')
+            translator.output.append(f'LDA {arg.id}__hi')
+            translator.output.append('STA num_hi')
+        else:
+            # the call returns A = low byte, X = high byte
+            translator.load_arg8(arg)
+            translator.output.append('STA num_lo')
+            translator.output.append('STX num_hi')
+        translator.output.append('JSR put_num16')
+        return
+    translator.load_arg8(arg)
     translator.output.append('JSR put_num')
 
 

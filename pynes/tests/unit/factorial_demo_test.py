@@ -32,11 +32,11 @@ class Factorial4DemoTest(AbstractFactorialOneLine, TestCase):
     demo_filename = 'factorial_4.py'
 
 
-# class Factorial5DemoTest(AbstractFactorialOneLine, TestCase):
-#     demo_filename = 'factorial_5.py'
+class Factorial5DemoTest(AbstractFactorialOneLine, TestCase):
+    demo_filename = 'factorial_5.py'
 
-#     def get_factorial_factor(self):
-#         return 8
+    def get_factorial_factor(self):
+        return 8
 
 
 class Factorial6DemoTest(AbstractFactorialMultiline, TestCase):

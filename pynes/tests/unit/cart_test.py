@@ -613,6 +613,69 @@ def main():
         self.assertNotIn('helper_var_shared', asm)
 
 
+UINT16_RETURN_SOURCE = '''
+from pynes.types import uint16
+
+def factorial(n) -> uint16:
+    result = 1
+    while n > 1:
+        result = result * n
+        n -= 1
+    return result
+
+@reset
+def main():
+    put_num(factorial(8))
+'''
+
+
+class CartUint16ReturnTest(TestCase):
+    """A function annotated -> uint16 returns 16 bits (A holds the
+    low byte, X the high byte) and put_num dispatches on the width
+    of its argument (8! = 40320 needs the put_num16 runtime)."""
+
+    def setUp(self):
+        from neslib.library import lib
+
+        self.cart = Cart(libraries=[lib])
+        self.asm = self.cart.compile(UINT16_RETURN_SOURCE)
+
+    def test_returned_local_is_allocated_16_bit(self):
+        self.assertIn('factorial_result .rs 1', self.asm)
+        self.assertIn('factorial_result__hi .rs 1', self.asm)
+
+    def test_return_loads_both_bytes(self):
+        self.assertIn('LDX factorial_result__hi', self.asm)
+        self.assertIn('LDA factorial_result', self.asm)
+
+    def test_put_num_dispatches_to_the_16_bit_runtime(self):
+        self.assertIn('JSR factorial', self.asm)
+        self.assertIn('STA num_lo', self.asm)
+        self.assertIn('STX num_hi', self.asm)
+        self.assertIn('JSR put_num16', self.asm)
+
+    def test_put_num_stays_8_bit_for_8_bit_arguments(self):
+        from neslib.library import lib
+
+        asm = Cart(libraries=[lib]).compile(
+            '''
+def double(n):
+    return n + n
+
+@reset
+def main():
+    put_num(double(21))
+'''
+        )
+        self.assertIn('JSR put_num', asm)
+        self.assertNotIn('JSR put_num16', asm)
+
+    def test_parseable_by_nesasm(self):
+        tokens = lexical(self.asm)
+        ast = syntax(tokens)
+        self.assertTrue(len(ast) > 0)
+
+
 ARRAY_PARAM_SOURCE = '''
 def fill(arr, value):
     for var_i in range(5):
