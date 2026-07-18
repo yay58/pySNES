@@ -11,8 +11,6 @@ from unittest import TestCase
 from pynes.tests.mixins.demos import (
     AbstractFactorialMultiline,
     AbstractFactorialOneLine,
-    load_runner,
-    text,
 )
 
 
@@ -34,9 +32,6 @@ class Factorial4DemoTest(AbstractFactorialOneLine, TestCase):
 
 class Factorial5DemoTest(AbstractFactorialOneLine, TestCase):
     demo_filename = 'factorial_5.py'
-
-    def get_factorial_factor(self):
-        return 8
 
 
 class Factorial6DemoTest(AbstractFactorialMultiline, TestCase):

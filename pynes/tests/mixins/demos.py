@@ -76,7 +76,11 @@ class AbstractFactorialOneLine(AbstractFactorialBase, FactorialOneLineSpec):
         cls.runner = load_runner(cls.demo_filename)
 
     def get_factorial_factor(self):
-        return 5
+        try:
+            label = self.get_demo_attribute('label')
+            return int(label[0])
+        except UnboundLocalError:
+            return 5
 
     def when_factorial_demo_runs(self):
         pass
