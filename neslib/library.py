@@ -1,6 +1,6 @@
 import ast
 
-from pynes.library import Library
+from pynes.library import Library, NesFunction
 from neslib import (
     NTADR_A,
     PAD_A,
@@ -65,9 +65,25 @@ def pal_col(translator, args):
     translator.output.append('JSR pal_col')
 
 
-@lib.extern
-def ppu_on_all(translator, args):
-    translator.output.append('JSR ppu_on_all')
+class PpuOnAll(NesFunction):
+    def caller_code(self, translator, args):
+        translator.output.append('JSR ppu_on_all')
+
+    def runtime_code(self):
+        return '''
+ppu_on_all:
+  LDA $2002
+  LDA #0
+  STA $2000
+  STA $2005
+  STA $2005
+  LDA #%00011110
+  STA $2001
+  RTS
+'''
+
+
+lib.function(PpuOnAll())
 
 
 @lib.extern
@@ -386,16 +402,6 @@ stage_col_loop:
   ; NMI users must call scroll_x afterwards to restore $2000
   LDA #%00000000
   STA $2000
-  RTS
-
-ppu_on_all:
-  LDA $2002
-  LDA #0
-  STA $2000
-  STA $2005
-  STA $2005
-  LDA #%00011110
-  STA $2001
   RTS
 
 put_str:

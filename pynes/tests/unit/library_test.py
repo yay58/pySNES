@@ -1,7 +1,66 @@
 from unittest import TestCase
 
-from pynes.library import Library
+from pynes.library import Library, NesFunction
 from pynes.translator import PythonTo6502
+
+
+class Beep(NesFunction):
+    def caller_code(self, translator, args):
+        translator.output.append('JSR beep')
+
+    def runtime_code(self):
+        return 'beep:\n  RTS'
+
+
+class NesFunctionTest(TestCase):
+    """A library function is one object holding both sides of the
+    contract: caller_code emitted at the call site and runtime_code
+    bundled into the ROM (template method pattern)."""
+
+    def test_name_derived_from_class_name(self):
+        class PpuOnAll(NesFunction):
+            def caller_code(self, translator, args):
+                pass
+
+            def runtime_code(self):
+                return ''
+
+        self.assertEqual(Beep().name, 'beep')
+        self.assertEqual(PpuOnAll().name, 'ppu_on_all')
+
+    def test_caller_code_is_abstract(self):
+        with self.assertRaises(NotImplementedError):
+            NesFunction().caller_code(None, [])
+
+    def test_runtime_code_is_abstract(self):
+        with self.assertRaises(NotImplementedError):
+            NesFunction().runtime_code()
+
+    def test_registration_binds_both_sides(self):
+        lib = Library('mylib')
+        lib.function(Beep())
+        self.assertIn('beep', lib.externs)
+        self.assertIn('beep:\n  RTS', lib.runtime_asm)
+
+    def test_inline_functions_register_no_runtime(self):
+        class Nop(NesFunction):
+            def caller_code(self, translator, args):
+                translator.output.append('NOP')
+
+            def runtime_code(self):
+                return ''
+
+        lib = Library('mylib')
+        lib.function(Nop())
+        self.assertIn('nop', lib.externs)
+        self.assertEqual(lib.runtime_asm, [])
+
+    def test_call_emits_caller_code(self):
+        lib = Library('mylib')
+        lib.function(Beep())
+        translator = PythonTo6502(libraries=[lib])
+        asm = translator.translate('beep()')
+        self.assertIn('JSR beep', asm)
 
 
 class ConstFunctionTest(TestCase):

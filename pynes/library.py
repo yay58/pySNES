@@ -1,3 +1,35 @@
+import re
+
+
+class NesFunction:
+    """A library function as one object holding both sides of the
+    contract (template method pattern):
+
+    - ``caller_code(translator, args)``: assembly emitted at each
+      call site
+    - ``runtime_code()``: the 6502 routine bundled into the ROM,
+      or '' when the caller expands entirely inline
+
+    The extern name defaults to the snake_case of the class name
+    (``PpuOnAll`` -> ``ppu_on_all``).
+    """
+
+    @property
+    def name(self):
+        return re.sub(
+            r'(?<=[a-z0-9])(?=[A-Z])', '_', type(self).__name__
+        ).lower()
+
+    def runtime_code(self):
+        raise NotImplementedError
+
+    def caller_code(self, translator, args):
+        raise NotImplementedError
+
+    def __call__(self, translator, args):
+        self.caller_code(translator, args)
+
+
 class Library:
     """Contract between the compiler core and platform libraries.
 
@@ -37,6 +69,15 @@ class Library:
         if func is not None:
             return register(func)
         return register
+
+    def function(self, fn):
+        """Register a NesFunction: its caller side becomes an extern
+        and its runtime side is linked into the ROM."""
+        self.externs[fn.name] = fn
+        runtime = fn.runtime_code()
+        if runtime:
+            self.runtime(runtime)
+        return fn
 
     def const(self, func):
         """Register a compile-time constant function. When called with
