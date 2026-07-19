@@ -125,3 +125,42 @@ class ForSpec:
 
         self.assertEqual(var_acc, 3)
 
+
+    def test_loop_variable_after_loop(self):
+        # Python semantics: the loop variable keeps the last
+        # iterated value after the loop ends
+        var_acc = 0
+        for var_i in range(4):
+            var_acc += 1
+
+        self.assertEqual(var_i, 3)
+
+    def test_loop_variable_after_loop_with_step(self):
+        var_acc = 0
+        for var_i in range(0, 10, 3):
+            var_acc += 1
+
+        self.assertEqual(var_i, 9)
+
+    def test_loop_variable_after_break(self):
+        # break must not disturb the loop variable
+        var_acc = 0
+        for var_i in range(10):
+            var_acc += 1
+            if var_i == 4:
+                break
+
+        self.assertEqual(var_i, 4)
+
+    def test_enumerate_index_after_loop(self):
+        def counter(n):
+            while n > 0:
+                yield n
+                n -= 1
+
+        var_last = 0
+        for var_index, var_value in enumerate(counter(5)):
+            var_last = var_value
+
+        self.assertEqual(var_index, 4)
+        self.assertEqual(var_last, 1)

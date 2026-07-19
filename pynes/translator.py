@@ -162,6 +162,7 @@ TEMP_VARS = (
     'temp_var',
     'temp_left',
     'temp_right',
+    'temp_cmp',
     'temp_mul',
     'temp16_lo',
     'temp16_hi',
@@ -670,13 +671,22 @@ class PythonTo6502:
             ) and not self._is_simple_index(comparator.slice):
                 self._load_index(comparator.slice, 'Y')
 
+            # An expression on the right side clobbers A, so it is
+            # evaluated into a scratch byte before the left operand
+            expression_comparator = not isinstance(
+                comparator, (ast.Constant, ast.Name, ast.Subscript)
+            )
+            if expression_comparator:
+                self.visit(comparator)
+                self.output.append('STA temp_cmp')
+
             # Load the left operand into A
             if isinstance(left, ast.Name):
                 self.output.append(f'LDA {left.id}')
             elif isinstance(left, ast.Subscript):
                 self.visit_Subscript(left)
-            elif isinstance(left, ast.Call):
-                # Call leaves its return value in A
+            elif isinstance(left, (ast.Call, ast.BinOp)):
+                # Calls and expressions leave their result in A
                 self.visit(left)
             else:
                 raise NotImplementedError(
@@ -684,7 +694,9 @@ class PythonTo6502:
                 )
 
             # Compare against the right operand
-            if isinstance(comparator, ast.Constant):
+            if expression_comparator:
+                self.output.append('CMP temp_cmp')
+            elif isinstance(comparator, ast.Constant):
                 self.output.append(f'CMP #{comparator.value}')
             elif isinstance(comparator, ast.Name):
                 self.output.append(f'CMP {comparator.id}')
@@ -1568,6 +1580,9 @@ class PythonTo6502:
             self.output.append(f'INC {index_name}')
         self.output.append(f'JMP {loop_label}')
         self.output.append(f'{end_label}:')
+        # Python leaves the index at the last iterated value
+        if index_name is not None:
+            self.output.append(f'DEC {index_name}')
 
     def _for_over_range(self, node):
         if (
@@ -1596,6 +1611,7 @@ class PythonTo6502:
         var_name = node.target.id
         start_label = self._generate_label()
         continue_label = self._generate_label()
+        exit_label = self._generate_label()
         end_label = self._generate_label()
 
         # Initialize loop variable
@@ -1621,7 +1637,7 @@ class PythonTo6502:
         # trampoline: the loop body may exceed branch range
         loop_body = self._generate_label()
         self.output.append(f'BCC {loop_body}')
-        self.output.append(f'JMP {end_label}')
+        self.output.append(f'JMP {exit_label}')
         self.output.append(f'{loop_body}:')
 
         # Loop body
@@ -1656,6 +1672,25 @@ class PythonTo6502:
         else:
             raise NotImplementedError('Unsupported range() step')
         self.output.append(f'JMP {start_label}')
+
+        # Normal exit: Python leaves the loop variable at the last
+        # iterated value, so rewind the final increment. A break
+        # jumps straight to end_label, keeping the variable as is.
+        self.output.append(f'{exit_label}:')
+        if step is None or (
+            isinstance(step, ast.Constant) and step.value == 1
+        ):
+            self.output.append(f'DEC {var_name}')
+        elif isinstance(step, ast.Constant):
+            self.output.append(f'LDA {var_name}')
+            self.output.append('SEC')
+            self.output.append(f'SBC #{step.value}')
+            self.output.append(f'STA {var_name}')
+        else:
+            self.output.append(f'LDA {var_name}')
+            self.output.append('SEC')
+            self.output.append(f'SBC {step.id}')
+            self.output.append(f'STA {var_name}')
 
         # End of loop
         self.output.append(f'{end_label}:')

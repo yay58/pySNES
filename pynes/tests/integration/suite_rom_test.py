@@ -18,8 +18,22 @@ from pynes.tests.suite import (
 )
 from pynes.tests.nes_runner import NESRunner
 from pynes.tests.mixins.demos import text
-from pynes.tests.math_spec import MathSpec
+from pynes.tests.array_spec import ArraySpec
+from pynes.tests.assign_spec import AssignSpec
+from pynes.tests.bitwise_spec import BitwiseSpec
+from pynes.tests.comparison_spec import ComparisonSpec
+from pynes.tests.cpu_spec import CPUSpec
+from pynes.tests.factorial_spec import FactorialSpec
+from pynes.tests.fibonacci_spec import FibonacciSpec
+from pynes.tests.for_spec import ForSpec
+from pynes.tests.function_spec import FunctionSpec
 from pynes.tests.if_spec import IfSpec
+from pynes.tests.math_spec import MathSpec
+from pynes.tests.sort_bubble_spec import SortBubbleSpec
+from pynes.tests.sort_insertion_spec import SortInsertionSpec
+from pynes.tests.sort_quicksort_spec import SortQuicksortSpec
+from pynes.tests.sort_selection_spec import SortSelectionSpec
+from pynes.tests.uint16_spec import Uint16Spec
 from pynes.tests.while_spec import WhileSpec
 
 OUTPUT_PATH = os.path.join(
@@ -124,3 +138,94 @@ class IfOnCartTest(SuiteRomTestCase, IfSpec, metaclass=MetaSuiteRomTest):
 
 class WhileOnCartTest(SuiteRomTestCase, WhileSpec, metaclass=MetaSuiteRomTest):
     """The while twin spec with its asserts running on the cartridge."""
+
+
+class ArrayOnCartTest(SuiteRomTestCase, ArraySpec, metaclass=MetaSuiteRomTest):
+    """The array twin spec with its asserts running on the cartridge."""
+
+
+class AssignOnCartTest(
+    SuiteRomTestCase, AssignSpec, metaclass=MetaSuiteRomTest
+):
+    """The assign twin spec with its asserts running on the cartridge."""
+
+
+class BitwiseOnCartTest(
+    SuiteRomTestCase, BitwiseSpec, metaclass=MetaSuiteRomTest
+):
+    """The bitwise twin spec with its asserts running on the cartridge."""
+
+
+class ComparisonOnCartTest(
+    SuiteRomTestCase, ComparisonSpec, metaclass=MetaSuiteRomTest
+):
+    """The comparison twin spec with its asserts on the cartridge."""
+
+
+class CPUOnCartTest(SuiteRomTestCase, CPUSpec, metaclass=MetaSuiteRomTest):
+    """The cpu twin spec with its asserts running on the cartridge."""
+
+
+class FactorialOnCartTest(
+    SuiteRomTestCase, FactorialSpec, metaclass=MetaSuiteRomTest
+):
+    """The factorial twin spec with its asserts on the cartridge."""
+
+    on_cart_skip = {
+        'test_factorial_of_eight_with_uint16': (
+            'on-cart asserts need 16-bit comparisons'
+        ),
+    }
+
+
+class FibonacciOnCartTest(
+    SuiteRomTestCase, FibonacciSpec, metaclass=MetaSuiteRomTest
+):
+    """The fibonacci twin spec with its asserts on the cartridge."""
+
+
+class ForOnCartTest(SuiteRomTestCase, ForSpec, metaclass=MetaSuiteRomTest):
+    """The for twin spec with its asserts running on the cartridge."""
+
+
+class FunctionOnCartTest(
+    SuiteRomTestCase, FunctionSpec, metaclass=MetaSuiteRomTest
+):
+    """The function twin spec with its asserts on the cartridge."""
+
+
+class SortBubbleOnCartTest(
+    SuiteRomTestCase, SortBubbleSpec, metaclass=MetaSuiteRomTest
+):
+    """The bubble sort twin spec with its asserts on the cartridge."""
+
+
+class SortInsertionOnCartTest(
+    SuiteRomTestCase, SortInsertionSpec, metaclass=MetaSuiteRomTest
+):
+    """The insertion sort twin spec with its asserts on the cartridge."""
+
+
+class SortQuicksortOnCartTest(
+    SuiteRomTestCase, SortQuicksortSpec, metaclass=MetaSuiteRomTest
+):
+    """The quicksort twin spec with its asserts on the cartridge."""
+
+
+class SortSelectionOnCartTest(
+    SuiteRomTestCase, SortSelectionSpec, metaclass=MetaSuiteRomTest
+):
+    """The selection sort twin spec with its asserts on the cartridge."""
+
+
+class Uint16OnCartTest(
+    SuiteRomTestCase, Uint16Spec, metaclass=MetaSuiteRomTest
+):
+    """The uint16 twin spec: skipped until the on-cart asserts can
+    compare 16-bit values (if var != 1000 with a uint16 var)."""
+
+    on_cart_skip = {
+        name: 'on-cart asserts need 16-bit comparisons'
+        for name in dir(Uint16Spec)
+        if name.startswith('test_')
+    }

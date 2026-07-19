@@ -13,14 +13,35 @@ import ast
 import inspect
 import os
 import textwrap
+import unittest
 from unittest import TestCase
 
 from pynes.tests.base import CodeFilter
 
 from neslib.font import font_chr
 from neslib.library import lib as neslib
+from pynes import types as pynes_types
 from pynes.cart import Cart
 from pynes.tests.unit.fceux_runner import FCEUXRunner
+
+
+class RenameHelpers(ast.NodeTransformer):
+    """Rename a case's helper functions (and every reference to
+    them) so same-named helpers in different cases cannot clash in
+    the shared module namespace."""
+
+    def __init__(self, mapping):
+        self.mapping = mapping
+
+    def visit_FunctionDef(self, node):
+        self.generic_visit(node)
+        node.name = self.mapping.get(node.name, node.name)
+        return node
+
+    def visit_Name(self, node):
+        if node.id in self.mapping:
+            node.id = self.mapping[node.id]
+        return node
 
 
 class SuiteCase:
@@ -61,19 +82,39 @@ class SuiteRom:
         """Run the case body in CPython and capture its variables:
         the twin defines what the cartridge must reproduce."""
         env = {}
-        exec(source, {}, env)  # nosec B102 - twin run of the case body
-        return {
-            name: value
-            for name, value in env.items()
-            if isinstance(value, int)
+        # the pynes declaration types behave as plain values in
+        # CPython, so annotated case bodies run unmodified
+        types = {
+            name: getattr(pynes_types, name)
+            for name in ('uint8', 'uint16', 'string', 'rom')
         }
+        exec(source, types, env)  # nosec B102 - twin run of the case
+        expect = {}
+        for name, value in env.items():
+            if isinstance(value, bool):
+                continue
+            if isinstance(value, int):
+                expect[name] = value
+            elif isinstance(value, list) and all(
+                isinstance(item, int) and not isinstance(item, bool)
+                for item in value
+            ):
+                expect[name] = value
+        return expect
 
     @staticmethod
     def _split_case(case):
         """Separate helper functions defined in the case body from its
         statements: the compiler only supports module-level defs, so
-        helpers are hoisted out of the generated case function."""
+        helpers are hoisted out of the generated case function, name
+        mangled per case to keep the module namespace clash-free."""
         tree = ast.parse(textwrap.dedent(case.source))
+        mapping = {
+            node.name: f'case_{case.number}_{node.name}'
+            for node in tree.body
+            if isinstance(node, ast.FunctionDef)
+        }
+        tree = RenameHelpers(mapping).visit(tree)
         helpers = [
             node for node in tree.body if isinstance(node, ast.FunctionDef)
         ]
@@ -85,19 +126,12 @@ class SuiteRom:
         return helpers, rest
 
     def _helper_functions(self):
-        """Hoisted helpers for all cases; same-named helpers must have
-        the same body since they share the module namespace."""
-        helpers = {}
-        for case in self.cases:
-            for node in self._split_case(case)[0]:
-                source = ast.unparse(node)
-                if helpers.get(node.name, source) != source:
-                    raise NotImplementedError(
-                        f'helper {node.name!r} redefined with a '
-                        'different body across cases'
-                    )
-                helpers[node.name] = source
-        return helpers
+        """Hoisted (mangled) helpers of every case."""
+        return [
+            ast.unparse(node)
+            for case in self.cases
+            for node in self._split_case(case)[0]
+        ]
 
     def _case_function(self, case):
         out = [f'def case_{case.number}():']
@@ -107,8 +141,13 @@ class SuiteRom:
                 out.append(f'    {line}' if line.strip() else '')
         out.append('    var_suite_ok = 1')
         for name, value in sorted(case.expect.items()):
-            out.append(f'    if {name} != {value}:')
-            out.append('        var_suite_ok = 0')
+            if isinstance(value, list):
+                for index, item in enumerate(value):
+                    out.append(f'    if {name}[{index}] != {item}:')
+                    out.append('        var_suite_ok = 0')
+            else:
+                out.append(f'    if {name} != {value}:')
+                out.append('        var_suite_ok = 0')
         out.append('    return var_suite_ok')
         out.append('')
         out.append('')
@@ -140,14 +179,14 @@ class SuiteRom:
         out = [
             'from neslib import reset, pal_col, ppu_on_all, put_str, \\',
             '    put_num, vram_adr, NTADR_A',
-            'from pynes.types import string',
+            'from pynes.types import string, uint8, uint16',
             '',
             "ok = string('OK')",
             "fail = string('FAIL')",
             '',
             '',
         ]
-        for source in self._helper_functions().values():
+        for source in self._helper_functions():
             out.append(source)
             out.append('')
             out.append('')
@@ -253,15 +292,19 @@ class MetaSuiteRomTest(type):
     gathered suite case, so the same spec that runs on CPython and on
     the headless runner also runs with on-cart asserts on FCEUX.
 
+    Tests listed in on_cart_skip are skipped with the given reason
+    instead of gathered:
+
     Usage:
         class MathOnCartTest(SuiteRomTestCase, MathSpec,
                              metaclass=MetaSuiteRomTest):
-            pass
+            on_cart_skip = {'test_x': 'needs 16-bit comparisons'}
     """
 
     def __new__(mcs, name, bases, dct):
         klass = super().__new__(mcs, name, bases, dct)
         filter_code = CodeFilter()
+        skip = dct.get('on_cart_skip', {})
         tests = [
             method_name
             for method_name in dir(klass)
@@ -269,6 +312,9 @@ class MetaSuiteRomTest(type):
             and callable(getattr(klass, method_name))
         ]
         for test in tests:
+            if test in skip:
+                setattr(klass, test, unittest.skip(skip[test])(lambda self: None))
+                continue
             lines = inspect.getsourcelines(getattr(klass, test))[0]
             code = ''.join(line[4:] for line in lines)
             tree = filter_code.visit(ast.parse(code))
