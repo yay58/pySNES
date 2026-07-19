@@ -2,15 +2,11 @@
 and buttons are injected per frame through the $4016 controller model.
 """
 
-import os
 from unittest import TestCase
 
 from neslib import PAD_LEFT, PAD_RIGHT
 from pynes.tests.nes_runner import NESRunner
-
-DEMOS_DIR = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', 'demos'
-)
+from pynes.tests.mixins.demos import get_demo_filename
 
 BLOCK = 1  # first declared tile
 BALL = 2  # second declared tile
@@ -19,7 +15,7 @@ BALL = 2  # second declared tile
 class WalkingSpecTest(TestCase):
     @classmethod
     def setUpClass(cls):
-        with open(os.path.join(DEMOS_DIR, 'walking.py')) as f:
+        with open(get_demo_filename('walking.py')) as f:
             cls.runner = NESRunner(f.read())
         cls.runner.run_reset()
 

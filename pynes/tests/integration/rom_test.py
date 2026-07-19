@@ -1,18 +1,16 @@
-import os
 from unittest import TestCase
 
 from neslib.font import CHR_BANK_SIZE, GLYPHS, TILE_SIZE, font_chr, glyph_tile
 from neslib.library import lib as neslib
 from pynes.cart import Cart
-
-DEMOS = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'demos')
+from pynes.tests.mixins.demos import get_demo_filename
 
 PRG_SIZE = 16384
 HEADER_SIZE = 16
 
 
 def build_demo_rom(filename):
-    with open(os.path.join(DEMOS, filename)) as f:
+    with open(get_demo_filename(filename)) as f:
         source = f.read()
     cart = Cart(libraries=[neslib], chr_banks=1, chr_data=font_chr())
     return cart.to_nes(source)

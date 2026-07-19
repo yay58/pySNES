@@ -6,20 +6,16 @@ asserted at exact frame counts -- something the FCEUX screen checks
 cannot do deterministically.
 """
 
-import os
 from unittest import TestCase
 
 from pynes.tests.nes_runner import NESRunner
-
-DEMOS_DIR = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', 'demos'
-)
+from pynes.tests.mixins.demos import get_demo_filename
 
 BLOCK = 1  # first declared tile
 
 
 def demo_source(filename):
-    with open(os.path.join(DEMOS_DIR, filename)) as f:
+    with open(get_demo_filename(filename)) as f:
         return f.read()
 
 

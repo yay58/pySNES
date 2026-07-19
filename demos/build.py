@@ -1,4 +1,8 @@
-"""Build all demos into .nes ROMs: python demos/build.py"""
+"""Build all demos into .nes ROMs: python demos/build.py
+
+Demos live in category subfolders (hello/, math/, sorters/,
+graphics/); every .py found is built into a .nes next to it.
+"""
 
 import os
 import sys
@@ -10,53 +14,39 @@ from neslib.library import lib as neslib  # noqa: E402
 from pynes.cart import Cart  # noqa: E402
 
 DEMOS_DIR = os.path.dirname(os.path.abspath(__file__))
-DEMOS = [
-    'hello.py',
-    'hello_1.py',
-    'hello_2.py',
-    'factorial.py',
-    'factorial_1.py',
-    'factorial_2.py',
-    'factorial_3.py',
-    'factorial_4.py',
-    'factorial_5.py',
-    'factorial_6.py',
-    'factorial_7.py',
-    'factorial_8.py',
-    'factorial_9.py',
-    'factorial_10.py',
-    'fibonacci.py',
-    'fibonacci_1.py',
-    'fibonacci_2.py',
-    'fibonacci_3.py',
-    'sorter_bubble.py',
-    'sorter_bubble_1.py',
-    'sorter_bubble_2.py',
-    'sorter_bubble_3.py',
-    'sorter_quicksort.py',
-    'sorter_insertion.py',
-    'sorter_bubble_animated.py',
-    'sorter_generator.py',
-    'sorter_generator_1.py',
-    'sprite.py',
-    'stage.py',
-    'scrolling.py',
-    'scrolling_level.py',
-    'walking.py',
-]
+
+# demos for features that do not exist yet: skipped until the
+# compiler catches up
+WIP = {
+    'math/factorial_11.py': "needs print() support",
+}
 
 
-def build(filename):
-    with open(os.path.join(DEMOS_DIR, filename)) as f:
+def find_demos():
+    for root, _, files in sorted(os.walk(DEMOS_DIR)):
+        if '__pycache__' in root:
+            continue
+        for name in sorted(files):
+            if name.endswith('.py') and name != 'build.py':
+                yield os.path.join(root, name)
+
+
+def build(path):
+    with open(path) as f:
         source = f.read()
     cart = Cart(libraries=[neslib], chr_banks=1, chr_data=font_chr())
     rom = cart.to_nes(source)
-    rom_path = os.path.join(DEMOS_DIR, filename.replace('.py', '.nes'))
+    rom_path = path[: -len('.py')] + '.nes'
     with open(rom_path, 'wb') as f:
         f.write(rom)
-    print(f'{filename} -> {rom_path} ({len(rom)} bytes)')
+    relative = os.path.relpath(rom_path, DEMOS_DIR)
+    print(f'{relative} ({len(rom)} bytes)')
 
 
 if __name__ == '__main__':
-    for demo in DEMOS:
+    for demo in find_demos():
+        relative = os.path.relpath(demo, DEMOS_DIR)
+        if relative in WIP:
+            print(f'{relative} skipped: {WIP[relative]}')
+            continue
         build(demo)

@@ -20,5 +20,5 @@ pynes/examples/*.chr
 pynes/examples/*.nes
 tools/
 venv/
-demos/*.nes
+demos/**/*.nes
 output/

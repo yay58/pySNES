@@ -10,13 +10,23 @@ from pynes.tests.factorial_demo_spec import (
 )
 
 
-DEMOS_DIR = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', 'demos'
+DEMOS_DIR = os.path.normpath(
+    os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        '..', '..', '..', 'demos',
+    )
 )
+PROJECT_ROOT = os.path.dirname(DEMOS_DIR)
 
 
 def get_demo_filename(demo):
-    return os.path.join(DEMOS_DIR, demo)
+    """Resolve a demo by name across the category subfolders
+    (hello/, math/, sorters/, graphics/, ...)."""
+    name = os.path.basename(demo)
+    for root, _, files in sorted(os.walk(DEMOS_DIR)):
+        if name in files:
+            return os.path.join(root, name)
+    raise FileNotFoundError(f'demo {demo!r} not found under {DEMOS_DIR}')
 
 
 @lru_cache(maxsize=None)
@@ -49,7 +59,9 @@ class AbstractFactorialBase:
         return self.demo_filename
 
     def get_demo_module(self):
-        return 'demos.' + self.get_demo_filename().replace('.py', '')
+        path = get_demo_filename(self.get_demo_filename())
+        relative = os.path.relpath(path, PROJECT_ROOT)
+        return relative[: -len('.py')].replace(os.sep, '.')
 
     def get_demo_attribute(self, attr_name):
         module_path = self.get_demo_module()
