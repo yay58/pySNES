@@ -11,9 +11,16 @@ produced.
 import os
 from unittest import TestCase
 
-from pynes.tests.suite import SuiteRom, SuiteRomTestCase
+from pynes.tests.suite import (
+    MetaSuiteRomTest,
+    SuiteRom,
+    SuiteRomTestCase,
+)
 from pynes.tests.nes_runner import NESRunner
 from pynes.tests.mixins.demos import text
+from pynes.tests.math_spec import MathSpec
+from pynes.tests.if_spec import IfSpec
+from pynes.tests.while_spec import WhileSpec
 
 OUTPUT_PATH = os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
@@ -105,3 +112,15 @@ class OnCartSuiteTest(SuiteRomTestCase):
             '    var_total += var_n\n'
             '    var_n -= 1\n'
         )
+
+
+class MathOnCartTest(SuiteRomTestCase, MathSpec, metaclass=MetaSuiteRomTest):
+    """The math twin spec with its asserts running on the cartridge."""
+
+
+class IfOnCartTest(SuiteRomTestCase, IfSpec, metaclass=MetaSuiteRomTest):
+    """The if twin spec with its asserts running on the cartridge."""
+
+
+class WhileOnCartTest(SuiteRomTestCase, WhileSpec, metaclass=MetaSuiteRomTest):
+    """The while twin spec with its asserts running on the cartridge."""

@@ -9,9 +9,13 @@ executed in Python first and the on-cart asserts compare the NES
 variables against what CPython produced.
 """
 
+import ast
+import inspect
 import os
 import textwrap
 from unittest import TestCase
+
+from pynes.tests.base import CodeFilter
 
 from neslib.font import font_chr
 from neslib.library import lib as neslib
@@ -31,11 +35,21 @@ class SuiteRom:
     OK_COLUMN = 6
     NUMBER_COLUMN = 2
     FIRST_ROW = 2
+    # no scrolling (yet): when a column of verdicts fills the screen,
+    # wrap to a second column
+    ROWS_PER_COLUMN = 30 - FIRST_ROW
+    COLUMN_WIDTH = 16
+    MAX_CASES = 2 * ROWS_PER_COLUMN
 
     def __init__(self):
         self.cases = []
 
     def add_case(self, name, source, expect=None):
+        if len(self.cases) >= self.MAX_CASES:
+            raise NotImplementedError(
+                f'suite screen is full ({self.MAX_CASES} cases): '
+                'scrolling through results is not implemented yet'
+            )
         if expect is None:
             expect = self._twin_expect(source)
         self.cases.append(
@@ -54,11 +68,43 @@ class SuiteRom:
             if isinstance(value, int)
         }
 
+    @staticmethod
+    def _split_case(case):
+        """Separate helper functions defined in the case body from its
+        statements: the compiler only supports module-level defs, so
+        helpers are hoisted out of the generated case function."""
+        tree = ast.parse(textwrap.dedent(case.source))
+        helpers = [
+            node for node in tree.body if isinstance(node, ast.FunctionDef)
+        ]
+        rest = [
+            node
+            for node in tree.body
+            if not isinstance(node, ast.FunctionDef)
+        ]
+        return helpers, rest
+
+    def _helper_functions(self):
+        """Hoisted helpers for all cases; same-named helpers must have
+        the same body since they share the module namespace."""
+        helpers = {}
+        for case in self.cases:
+            for node in self._split_case(case)[0]:
+                source = ast.unparse(node)
+                if helpers.get(node.name, source) != source:
+                    raise NotImplementedError(
+                        f'helper {node.name!r} redefined with a '
+                        'different body across cases'
+                    )
+                helpers[node.name] = source
+        return helpers
+
     def _case_function(self, case):
         out = [f'def case_{case.number}():']
-        body = textwrap.dedent(case.source).strip('\n')
-        for line in body.splitlines():
-            out.append(f'    {line}' if line.strip() else '')
+        _, statements = self._split_case(case)
+        for node in statements:
+            for line in ast.unparse(node).splitlines():
+                out.append(f'    {line}' if line.strip() else '')
         out.append('    var_suite_ok = 1')
         for name, value in sorted(case.expect.items()):
             out.append(f'    if {name} != {value}:')
@@ -68,17 +114,26 @@ class SuiteRom:
         out.append('')
         return out
 
+    def case_position(self, case):
+        """Screen position of a case verdict: (number_x, verdict_x,
+        row), wrapping into a new column when rows run out."""
+        index = case.number - 1
+        column = index // self.ROWS_PER_COLUMN
+        row = self.FIRST_ROW + index % self.ROWS_PER_COLUMN
+        offset = column * self.COLUMN_WIDTH
+        return self.NUMBER_COLUMN + offset, self.OK_COLUMN + offset, row
+
     def _report(self, case):
-        row = self.FIRST_ROW + case.number - 1
+        number_x, verdict_x, row = self.case_position(case)
         return [
             f'    # {case.name}',
-            f'    vram_adr(NTADR_A({self.NUMBER_COLUMN}, {row}))',
+            f'    vram_adr(NTADR_A({number_x}, {row}))',
             f'    put_num({case.number})',
             f'    var_verdict = case_{case.number}()',
             '    if var_verdict:',
-            f'        put_str(NTADR_A({self.OK_COLUMN}, {row}), ok)',
+            f'        put_str(NTADR_A({verdict_x}, {row}), ok)',
             '    else:',
-            f'        put_str(NTADR_A({self.OK_COLUMN}, {row}), fail)',
+            f'        put_str(NTADR_A({verdict_x}, {row}), fail)',
         ]
 
     def python_source(self):
@@ -92,6 +147,10 @@ class SuiteRom:
             '',
             '',
         ]
+        for source in self._helper_functions().values():
+            out.append(source)
+            out.append('')
+            out.append('')
         for case in self.cases:
             out.extend(self._case_function(case))
         out.append('@reset')
@@ -124,8 +183,6 @@ class SuiteRom:
             f.write(rom)
         return path
 
-    def case_row(self, case):
-        return self.FIRST_ROW + case.number - 1
 
 
 class SuiteRomTestCase(TestCase):
@@ -170,8 +227,8 @@ class SuiteRomTestCase(TestCase):
             runner.run_reset()
             failures = []
             for case in cls.suite.cases:
-                row = cls.suite.case_row(case)
-                base = 0x2000 + row * 32 + cls.suite.OK_COLUMN
+                _, verdict_x, row = cls.suite.case_position(case)
+                base = 0x2000 + row * 32 + verdict_x
                 verdict = bytes(runner.ppu.vram[base : base + 2])
                 if verdict != b'OK':
                     failures.append(f'{case.number:03d} {case.name}')
@@ -181,3 +238,40 @@ class SuiteRomTestCase(TestCase):
                 )
         finally:
             runner.close_fceux()
+
+
+def _gather_case(source):
+    def test(self):
+        self.run_case(source)
+
+    return test
+
+
+class MetaSuiteRomTest(type):
+    """Lift a twin spec onto the cartridge: every test_* body has its
+    asserts stripped (CodeFilter, as in MetaNESTest) and becomes a
+    gathered suite case, so the same spec that runs on CPython and on
+    the headless runner also runs with on-cart asserts on FCEUX.
+
+    Usage:
+        class MathOnCartTest(SuiteRomTestCase, MathSpec,
+                             metaclass=MetaSuiteRomTest):
+            pass
+    """
+
+    def __new__(mcs, name, bases, dct):
+        klass = super().__new__(mcs, name, bases, dct)
+        filter_code = CodeFilter()
+        tests = [
+            method_name
+            for method_name in dir(klass)
+            if method_name.startswith('test_')
+            and callable(getattr(klass, method_name))
+        ]
+        for test in tests:
+            lines = inspect.getsourcelines(getattr(klass, test))[0]
+            code = ''.join(line[4:] for line in lines)
+            tree = filter_code.visit(ast.parse(code))
+            ast.fix_missing_locations(tree)
+            setattr(klass, test, _gather_case(ast.unparse(tree)))
+        return klass
