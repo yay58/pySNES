@@ -146,9 +146,25 @@ class FCEUXRunner:
         return int.from_bytes(self.conn.recv(1), byteorder='big')
 
     def _read_ppu_vram_byte(self, address):
-        """Dispatches an atomic PPU VRAM byte query to FCEUX."""
+        """Dispatches an atomic PPU VRAM byte query to FCEUX (read
+        through the PPU registers at the frame boundary)."""
         self.conn.sendall(f"VRAM:{address}\n".encode())
-        return int.from_bytes(self.conn.recv(1), byteorder='big')
+        return self._recv_exact(1)[0]
+
+    def read_pixels(self, x, y, width, height):
+        """Reads an RGB block of the rendered screen: bytes in
+        r, g, b order, row by row."""
+        self.conn.sendall(f"PIXELS:{x},{y},{width},{height}\n".encode())
+        return self._recv_exact(width * height * 3)
+
+    def _recv_exact(self, size):
+        data = b''
+        while len(data) < size:
+            chunk = self.conn.recv(size - len(data))
+            if not chunk:
+                raise ConnectionError('FCEUX closed the connection')
+            data += chunk
+        return data
 
     def press(self, buttons):
         """Applies the target button mask on the first controller layout."""

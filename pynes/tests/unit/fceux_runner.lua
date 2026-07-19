@@ -130,8 +130,23 @@ while true do
 
     elseif line:sub(1, 5) == "VRAM:" then
         local addr = tonumber(line:sub(6))
-        local val = memory.readbyte(addr, "vram")
+        local val = ppu.readbyte(addr)
         client:send(string.char(val))
+
+    elseif line:sub(1, 7) == "PIXELS:" then
+        local coords = {}
+        for value in string.gmatch(line:sub(8), '[^,]+') do
+            table.insert(coords, tonumber(value))
+        end
+        local x0, y0, w, h = coords[1], coords[2], coords[3], coords[4]
+        local out = {}
+        for y = y0, y0 + h - 1 do
+            for x = x0, x0 + w - 1 do
+                local r, g, b = emu.getscreenpixel(x, y, true)
+                table.insert(out, string.char(r, g, b))
+            end
+        end
+        client:send(table.concat(out))
 
     elseif line:sub(1, 5) == "PADS:" then
         local mask = tonumber(line:sub(6))
