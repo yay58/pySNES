@@ -125,7 +125,6 @@ class ForSpec:
 
         self.assertEqual(var_acc, 3)
 
-
     def test_loop_variable_after_loop(self):
         # Python semantics: the loop variable keeps the last
         # iterated value after the loop ends

@@ -55,8 +55,7 @@ class ImportBindingTest(TestCase):
 
     def test_alias_binds_the_new_name(self):
         asm = compile_source(
-            'from neslib import pal_col as color\n'
-            + MAIN % 'color(0, 0x0F)'
+            'from neslib import pal_col as color\n' + MAIN % 'color(0, 0x0F)'
         )
         self.assertIn('JSR neslib__pal_col', asm)
 

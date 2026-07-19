@@ -17,6 +17,7 @@ SCRIPT_DIR = abspath(dirname(__file__))
 
 class MemoryProxy:
     """Helper class to allow bracket and slice access to CPU RAM."""
+
     def __init__(self, runner):
         self.runner = runner
 
@@ -25,12 +26,16 @@ class MemoryProxy:
             start = key.start or 0
             stop = key.stop or 0x800
             step = key.step or 1
-            return [self.runner._read_cpu_byte(addr) for addr in range(start, stop, step)]
+            return [
+                self.runner._read_cpu_byte(addr)
+                for addr in range(start, stop, step)
+            ]
         return self.runner._read_cpu_byte(key)
 
 
 class VramProxy:
     """Helper class to allow bracket and slice access to PPU VRAM."""
+
     def __init__(self, runner):
         self.runner = runner
 
@@ -39,27 +44,32 @@ class VramProxy:
             start = key.start or 0
             stop = key.stop or 0x4000
             step = key.step or 1
-            return [self.runner._read_ppu_vram_byte(addr) for addr in range(start, stop, step)]
+            return [
+                self.runner._read_ppu_vram_byte(addr)
+                for addr in range(start, stop, step)
+            ]
         return self.runner._read_ppu_vram_byte(key)
 
 
 class FCEUXRunner:
-    def __init__(self, source, host='127.0.0.1', port=8888, fceux_path='fceux'):
+    def __init__(
+        self, source, host='127.0.0.1', port=8888, fceux_path='fceux'
+    ):
         self.host = host
         self.port = port
         self.fceux_path = fceux_path
         self.process = None
         self.conn = None
-        
+
         # 1. Compile the source artifact identically to your original architecture
         cart = Cart(libraries=[lib], chr_banks=1, chr_data=font_chr())
         self.rom = cart.to_nes(source)
 
         prg = self.rom[HEADER_SIZE : HEADER_SIZE + PRG_SIZE]
-        
+
         # Extract vectors to coordinate manual NMI triggers over the socket
         self.nmi_vector = prg[0x3FFA] | (prg[0x3FFB] << 8)
-        
+
         # Wire structural proxy layers to match original headless syntax expectations
         self.cpu = type("ProxyCPU", (), {"memory": MemoryProxy(self)})()
         self.ppu = type("ProxyPPU", (), {"vram": VramProxy(self)})()
@@ -79,7 +89,8 @@ class FCEUXRunner:
             shutil.which('fceux'),
             # "--sound", "0",            # Disable audio processing
             # "--frameskip", "0",        # Enforce frame-by-frame lock step
-            "--loadlua", abs_lua_path, # Load the TCP socket server script
+            "--loadlua",
+            abs_lua_path,  # Load the TCP socket server script
             # "--winsound", "0"
             rom_path,
         ]
@@ -89,17 +100,15 @@ class FCEUXRunner:
 
         # Start the background process running the server
         self.process = subprocess.Popen(
-            cmd, 
-            stdout=self.stdout_log, 
-            stderr=self.stderr_log
+            cmd, stdout=self.stdout_log, stderr=self.stderr_log
         )
-        
+
         # Allow FCEUX a moment to start and bind its listening port
         time.sleep(0.8)
-        
+
         # Create a client socket and dial the emulator
         self.conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        
+
         retries = 5
         while retries > 0:
             try:
@@ -109,10 +118,12 @@ class FCEUXRunner:
                 print(f"Connection refused, retries left: {retries}")
                 time.sleep(0.5)
                 retries -= 1
-        
+
         if retries == 0:
             self.close_fceux()
-            raise TimeoutError("[RUNNER ERROR] Failed to connect to FCEUX server instance.")
+            raise TimeoutError(
+                "[RUNNER ERROR] Failed to connect to FCEUX server instance."
+            )
 
         # Stream the compiled ROM data over to the server immediately after connecting
         # self.conn.sendall(f"LOAD:{len(self.rom)}\n".encode())
@@ -128,7 +139,7 @@ class FCEUXRunner:
             except:
                 pass
             self.conn = None
-                
+
         if self.process:
             self.process.terminate()
             try:
@@ -137,8 +148,10 @@ class FCEUXRunner:
                 self.process.kill()
             self.process = None
 
-        if self.stdout_log: self.stdout_log.close()
-        if self.stderr_log: self.stderr_log.close()
+        if self.stdout_log:
+            self.stdout_log.close()
+        if self.stderr_log:
+            self.stderr_log.close()
 
     def _read_cpu_byte(self, address):
         """Dispatches an atomic CPU RAM byte query to FCEUX."""
@@ -194,7 +207,7 @@ class FCEUXRunner:
             self.conn.sendall(b"NMI_ENABLED\n")
             if self.conn.recv(2).decode().strip() == "0":
                 continue
-            
+
             self.conn.sendall(f"NMI:{self.nmi_vector}\n".encode())
             status = self.conn.recv(10).decode().strip()
             if status == "RUNAWAY":

@@ -13,7 +13,10 @@ from pynes.tests.factorial_demo_spec import (
 DEMOS_DIR = os.path.normpath(
     os.path.join(
         os.path.dirname(os.path.abspath(__file__)),
-        '..', '..', '..', 'demos',
+        '..',
+        '..',
+        '..',
+        'demos',
     )
 )
 PROJECT_ROOT = os.path.dirname(DEMOS_DIR)
@@ -114,7 +117,9 @@ class AbstractFactorialOneLine(AbstractFactorialBase, FactorialOneLineSpec):
         )
 
 
-class AbstractFactorialFCEUXOneLine(AbstractFactorialBase, FactorialOneLineSpec):
+class AbstractFactorialFCEUXOneLine(
+    AbstractFactorialBase, FactorialOneLineSpec
+):
     demo_filename = None
 
     @classmethod
@@ -149,7 +154,6 @@ class AbstractFactorialFCEUXOneLine(AbstractFactorialBase, FactorialOneLineSpec)
             self.text(x, y, len(str(self.get_factorial_result()))),
             str(self.get_factorial_result()).encode(),
         )
-
 
 
 class AbstractFactorialMultiline(

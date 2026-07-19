@@ -404,17 +404,14 @@ class Cart:
         already defines (a user function shadowing the library, as in
         Python scoping) is never bundled twice."""
         defined = {
-            line.strip()[:-1]
-            for line in program
-            if line.strip().endswith(':')
+            line.strip()[:-1] for line in program if line.strip().endswith(':')
         }
         needed = self._called_labels(program) & set(routines) - defined
         pending = list(needed)
         while pending:
             for callee in (
                 self._called_labels(routines[pending.pop()])
-                & set(routines)
-                - defined
+                & set(routines) - defined
             ):
                 if callee not in needed:
                     needed.add(callee)

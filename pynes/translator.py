@@ -138,9 +138,7 @@ def annotate_uint16_returns(functions):
                     node.body[i] = ast.copy_location(
                         ast.AnnAssign(
                             target=stmt.targets[0],
-                            annotation=ast.Name(
-                                id='uint16', ctx=ast.Load()
-                            ),
+                            annotation=ast.Name(id='uint16', ctx=ast.Load()),
                             value=stmt.value,
                             simple=1,
                         ),

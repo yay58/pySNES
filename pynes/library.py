@@ -34,8 +34,7 @@ class NesFunction:
         library = getattr(self, 'library', None)
         if library is not None:
             translator.output[start:] = [
-                library.namespaced(line)
-                for line in translator.output[start:]
+                library.namespaced(line) for line in translator.output[start:]
             ]
 
 
@@ -111,7 +110,5 @@ class Library:
         collide with user labels or with other libraries. NesFunction
         authors keep writing natural assembly."""
         for label in self.runtime_labels:
-            text = re.sub(
-                rf'\b{label}\b', f'{self.name}__{label}', text
-            )
+            text = re.sub(rf'\b{label}\b', f'{self.name}__{label}', text)
         return text

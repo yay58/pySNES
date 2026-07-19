@@ -4,6 +4,7 @@ from pynes.tests.mixins.demos import (
     AbstractFactorialFCEUXOneLine,
 )
 
+
 class FactorialDemoTest(AbstractFactorialFCEUXOneLine, TestCase):
     demo_filename = 'factorial.py'
 

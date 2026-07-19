@@ -38,7 +38,9 @@ from pynes.tests.while_spec import WhileSpec
 
 OUTPUT_PATH = os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
-    '..', '..', '..',
+    '..',
+    '..',
+    '..',
     'output',
     'suite',
     'SuiteRomTest.nes',

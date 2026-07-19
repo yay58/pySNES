@@ -73,9 +73,7 @@ class SuiteRom:
             )
         if expect is None:
             expect = self._twin_expect(source)
-        self.cases.append(
-            SuiteCase(len(self.cases) + 1, name, source, expect)
-        )
+        self.cases.append(SuiteCase(len(self.cases) + 1, name, source, expect))
 
     @staticmethod
     def _twin_expect(source):
@@ -119,9 +117,7 @@ class SuiteRom:
             node for node in tree.body if isinstance(node, ast.FunctionDef)
         ]
         rest = [
-            node
-            for node in tree.body
-            if not isinstance(node, ast.FunctionDef)
+            node for node in tree.body if not isinstance(node, ast.FunctionDef)
         ]
         return helpers, rest
 
@@ -208,9 +204,7 @@ class SuiteRom:
         return '\n'.join(out)
 
     def to_nes(self):
-        cart = Cart(
-            libraries=[neslib], chr_banks=1, chr_data=font_chr()
-        )
+        cart = Cart(libraries=[neslib], chr_banks=1, chr_data=font_chr())
         return cart.to_nes(self.python_source())
 
     def write_nes(self, path):
@@ -221,7 +215,6 @@ class SuiteRom:
         with open(path, 'wb') as f:
             f.write(rom)
         return path
-
 
 
 class SuiteRomTestCase(TestCase):
@@ -313,7 +306,9 @@ class MetaSuiteRomTest(type):
         ]
         for test in tests:
             if test in skip:
-                setattr(klass, test, unittest.skip(skip[test])(lambda self: None))
+                setattr(
+                    klass, test, unittest.skip(skip[test])(lambda self: None)
+                )
                 continue
             lines = inspect.getsourcelines(getattr(klass, test))[0]
             code = ''.join(line[4:] for line in lines)
