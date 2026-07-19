@@ -316,9 +316,41 @@ class PythonTo6502:
             'range': self._for_over_range,
             'enumerate': self._for_over_enumerate,
         }
-        for library in libraries or []:
+        self.libraries = libraries or []
+        for library in self.libraries:
             self.externs.update(library.externs)
             self.const_funcs.update(getattr(library, 'const_funcs', {}))
+
+    def bind_imports(self, tree):
+        """Apply Python name binding from the source's import lines:
+        `from <library> import a, b as c` restricts the visible
+        externs to exactly the imported names, so aliasing resolves
+        collisions between libraries. Sources without library imports
+        keep every extern implicitly bound (the twin specs carry no
+        import lines)."""
+        registries = {library.name: library for library in self.libraries}
+        bound_externs = {}
+        bound_consts = {}
+        imported = False
+        for node in getattr(tree, 'body', []):
+            if not isinstance(node, ast.ImportFrom):
+                continue
+            library = registries.get(node.module)
+            if library is None:
+                # not a function library (e.g. pynes.types)
+                continue
+            imported = True
+            for alias in node.names:
+                local = alias.asname or alias.name
+                if alias.name in library.externs:
+                    bound_externs[local] = library.externs[alias.name]
+                elif alias.name in getattr(library, 'const_funcs', {}):
+                    bound_consts[local] = library.const_funcs[alias.name]
+                # other names (entry decorators, constants) are
+                # resolved elsewhere
+        if imported:
+            self.externs = bound_externs
+            self.const_funcs = bound_consts
 
     def translate(self, python_code):
         # Parse Python code into an AST, mangling function scopes
@@ -377,9 +409,9 @@ class PythonTo6502:
         if not isinstance(node.func, ast.Name):
             raise NotImplementedError('Only direct calls are supported')
         name = node.func.id
-        if name in self.externs:
-            self.externs[name](self, node.args)
-        elif name in self.functions:
+        # Python resolution order: a def in the program shadows any
+        # imported or implicitly bound library extern
+        if name in self.functions:
             params = self.functions[name]
             if len(node.args) != len(params):
                 raise NotImplementedError(
@@ -390,8 +422,10 @@ class PythonTo6502:
                 self._eval_to_a(arg)
                 self.output.append(f'STA {param}')
             self.output.append(f'JSR {name}')
+        elif name in self.externs:
+            self.externs[name](self, node.args)
         else:
-            raise NotImplementedError(f'Unknown function {name!r}')
+            raise NameError(f'name {name!r} is not defined')
 
     def _fold_const(self, node):
         """Fold a call to a const function with constant arguments into

@@ -65,11 +65,13 @@ class NesFunctionTest(TestCase):
         self.assertEqual(lib.runtime_asm, [])
 
     def test_call_emits_caller_code(self):
+        # the label lands in the library namespace, but the author
+        # wrote natural assembly (JSR beep)
         lib = Library('mylib')
         lib.function(Beep())
         translator = PythonTo6502(libraries=[lib])
         asm = translator.translate('beep()')
-        self.assertIn('JSR beep', asm)
+        self.assertIn('JSR mylib__beep', asm)
 
 
 class ConstFunctionTest(TestCase):
@@ -183,7 +185,7 @@ class LibraryContractTest(TestCase):
 
         translator = PythonTo6502(libraries=[lib])
         asm = translator.translate('beep()')
-        self.assertIn('JSR beep', asm)
+        self.assertIn('JSR mylib__beep', asm)
 
     def test_extern_receives_call_arguments(self):
         lib = Library('mylib')
@@ -202,8 +204,9 @@ class LibraryContractTest(TestCase):
         self.assertEqual(seen['count'], 2)
 
     def test_unknown_call_raises(self):
+        # unresolved names fail like Python: NameError
         translator = PythonTo6502()
-        with self.assertRaises(NotImplementedError):
+        with self.assertRaises(NameError):
             translator.translate('unknown_function()')
 
     def test_multiple_libraries(self):
@@ -222,7 +225,9 @@ class LibraryContractTest(TestCase):
 
         translator = PythonTo6502(libraries=[lib_a, lib_b])
         asm = translator.translate('beep()\nboop()')
-        self.assertIn('JSR beep', asm)
+        # beep has a runtime routine: its label is namespaced;
+        # boop expands inline with no runtime label to rewrite
+        self.assertIn('JSR a__beep', asm)
         self.assertIn('JSR boop', asm)
 
     def test_argument_loading_helpers(self):

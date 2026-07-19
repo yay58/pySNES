@@ -27,7 +27,16 @@ class NesFunction:
         raise NotImplementedError
 
     def __call__(self, translator, args):
+        # authors write natural assembly (JSR put_str); the label
+        # rewrite into the library namespace happens centrally here
+        start = len(translator.output)
         self.caller_code(translator, args)
+        library = getattr(self, 'library', None)
+        if library is not None:
+            translator.output[start:] = [
+                library.namespaced(line)
+                for line in translator.output[start:]
+            ]
 
 
 class Library:
@@ -61,6 +70,7 @@ class Library:
     def function(self, fn):
         """Register a NesFunction: its caller side becomes an extern
         and its runtime side is linked into the ROM."""
+        fn.library = self
         self.externs[fn.name] = fn
         runtime = fn.runtime_code()
         if runtime:
@@ -80,3 +90,28 @@ class Library:
     def runtime(self, asm):
         """Register a 6502 assembly routine to be linked into the ROM."""
         self.runtime_asm.append(asm)
+        self._labels = None
+
+    @property
+    def runtime_labels(self):
+        """Every label defined by the library's runtime routines."""
+        if getattr(self, '_labels', None) is None:
+            self._labels = {
+                match.group(1)
+                for asm in self.runtime_asm
+                for line in asm.splitlines()
+                for match in [re.match(r'^\s*([A-Za-z_]\w*):', line)]
+                if match
+            }
+        return self._labels
+
+    def namespaced(self, text):
+        """Rewrite the library's own labels into its namespace
+        (put_str -> neslib__put_str), so library routines can never
+        collide with user labels or with other libraries. NesFunction
+        authors keep writing natural assembly."""
+        for label in self.runtime_labels:
+            text = re.sub(
+                rf'\b{label}\b', f'{self.name}__{label}', text
+            )
+        return text

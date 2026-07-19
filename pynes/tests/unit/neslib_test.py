@@ -199,27 +199,27 @@ class NeslibExternTest(TestCase):
         asm = self._translate('vram_adr(0x2042)')
         self.assertIn('LDX #32', asm)  # high byte 0x20
         self.assertIn('LDA #66', asm)  # low byte 0x42
-        self.assertIn('JSR vram_adr', asm)
+        self.assertIn('JSR neslib__vram_adr', asm)
 
     def test_vram_put_constant(self):
         asm = self._translate('vram_put(65)')
         self.assertIn('LDA #65', asm)
-        self.assertIn('JSR vram_put', asm)
+        self.assertIn('JSR neslib__vram_put', asm)
 
     def test_vram_put_variable(self):
         asm = self._translate('var_a = 65\nvram_put(var_a)')
         self.assertIn('LDA var_a', asm)
-        self.assertIn('JSR vram_put', asm)
+        self.assertIn('JSR neslib__vram_put', asm)
 
     def test_pal_col(self):
         asm = self._translate('pal_col(1, 0x30)')
         self.assertIn('LDX #1', asm)
         self.assertIn('LDA #48', asm)
-        self.assertIn('JSR pal_col', asm)
+        self.assertIn('JSR neslib__pal_col', asm)
 
     def test_ppu_on_all(self):
         asm = self._translate('ppu_on_all()')
-        self.assertIn('JSR ppu_on_all', asm)
+        self.assertIn('JSR neslib__ppu_on_all', asm)
 
     def test_runtime_defines_routines(self):
         from neslib.library import lib

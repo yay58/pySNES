@@ -53,10 +53,10 @@ class CartTest(TestCase):
         self.assertIn('.dw IRQ', self.asm)
 
     def test_user_code_compiled(self):
-        self.assertIn('JSR pal_col', self.asm)
-        self.assertIn('JSR vram_adr', self.asm)
-        self.assertIn('JSR vram_put', self.asm)
-        self.assertIn('JSR ppu_on_all', self.asm)
+        self.assertIn('JSR neslib__pal_col', self.asm)
+        self.assertIn('JSR neslib__vram_adr', self.asm)
+        self.assertIn('JSR neslib__vram_put', self.asm)
+        self.assertIn('JSR neslib__ppu_on_all', self.asm)
 
     def test_runtime_linked(self):
         self.assertIn('vram_adr:', self.asm)
@@ -170,7 +170,7 @@ class CartPutStrTest(TestCase):
         self.assertIn('STA str_ptr', self.asm)
         self.assertIn('LDA #HIGH(hello)', self.asm)
         self.assertIn('STA str_ptr_hi', self.asm)
-        self.assertIn('JSR put_str', self.asm)
+        self.assertIn('JSR neslib__put_str', self.asm)
 
     def test_zeropage_pointer_is_adjacent(self):
         # (indirect),Y requires str_ptr_hi right after str_ptr
@@ -202,7 +202,7 @@ def main():
     def test_put_num_call(self):
         # var_n is a local of main, mangled like any function local
         self.assertIn('LDA main_var_n', self.asm)
-        self.assertIn('JSR put_num', self.asm)
+        self.assertIn('JSR neslib__put_num', self.asm)
 
     def test_runtime_linked(self):
         self.assertIn('put_num:', self.asm)
@@ -234,7 +234,7 @@ def main():
     def test_put_num16_call(self):
         self.assertIn('STA num_lo', self.asm)
         self.assertIn('STA num_hi', self.asm)
-        self.assertIn('JSR put_num16', self.asm)
+        self.assertIn('JSR neslib__put_num16', self.asm)
 
     def test_runtime_linked(self):
         self.assertIn('put_num16:', self.asm)
@@ -303,11 +303,11 @@ def frame():
         )
 
     def test_nmi_on_call(self):
-        self.assertIn('JSR nmi_on', self.asm)
+        self.assertIn('JSR neslib__nmi_on', self.asm)
         self.assertIn('nmi_on:', self.asm)
 
     def test_scroll_call(self):
-        self.assertIn('JSR scroll', self.asm)
+        self.assertIn('JSR neslib__scroll', self.asm)
         self.assertIn('scroll:', self.asm)
 
     def test_nmi_body_compiled(self):
@@ -452,10 +452,10 @@ class CartStageTest(TestCase):
     def test_stage_column_extern(self):
         self.assertIn('LDA #LOW(level)', self.asm)
         self.assertIn('LDA #HIGH(level)', self.asm)
-        self.assertIn('JSR stage_col', self.asm)
+        self.assertIn('JSR neslib__stage_col', self.asm)
 
     def test_scroll_x_extern(self):
-        self.assertIn('JSR scroll_x', self.asm)
+        self.assertIn('JSR neslib__scroll_x', self.asm)
 
     def test_runtime_linked(self):
         self.assertIn('stage_col:', self.asm)
@@ -780,7 +780,7 @@ class CartUint16ReturnTest(TestCase):
         self.assertIn('JSR factorial', self.asm)
         self.assertIn('STA num_lo', self.asm)
         self.assertIn('STX num_hi', self.asm)
-        self.assertIn('JSR put_num16', self.asm)
+        self.assertIn('JSR neslib__put_num16', self.asm)
 
     def test_put_num_stays_8_bit_for_8_bit_arguments(self):
         from neslib.library import lib
@@ -795,8 +795,8 @@ def main():
     put_num(double(21))
 '''
         )
-        self.assertIn('JSR put_num', asm)
-        self.assertNotIn('JSR put_num16', asm)
+        self.assertIn('JSR neslib__put_num', asm)
+        self.assertNotIn('JSR neslib__put_num16', asm)
 
     def test_parseable_by_nesasm(self):
         tokens = lexical(self.asm)
@@ -918,7 +918,7 @@ class CartPadTest(TestCase):
         self.asm = self.cart.compile(PAD_SOURCE)
 
     def test_pad_poll_extern_and_runtime(self):
-        self.assertIn('JSR pad_poll', self.asm)
+        self.assertIn('JSR neslib__pad_poll', self.asm)
         self.assertIn('pad_poll:', self.asm)
         self.assertIn('STA $4016', self.asm)
 

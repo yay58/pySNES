@@ -374,9 +374,11 @@ class Cart:
     @staticmethod
     def _runtime_routines(library):
         """Split the library runtime into named routines: blocks are
-        separated by blank lines and named by their first label."""
+        separated by blank lines and named by their first label. Every
+        label lives in the library's namespace (neslib__put_str)."""
         routines = {}
         for asm in library.runtime_asm:
+            asm = library.namespaced(asm)
             block = []
             for line in asm.splitlines() + ['']:
                 if line.strip():
@@ -398,13 +400,22 @@ class Cart:
 
     def _used_routines(self, program, routines):
         """Cartridge space is precious: only the routines transitively
-        reachable from the program get bundled."""
-        needed = self._called_labels(program) & set(routines)
+        reachable from the program get bundled. A label the program
+        already defines (a user function shadowing the library, as in
+        Python scoping) is never bundled twice."""
+        defined = {
+            line.strip()[:-1]
+            for line in program
+            if line.strip().endswith(':')
+        }
+        needed = self._called_labels(program) & set(routines) - defined
         pending = list(needed)
         while pending:
-            for callee in self._called_labels(
-                routines[pending.pop()]
-            ) & set(routines):
+            for callee in (
+                self._called_labels(routines[pending.pop()])
+                & set(routines)
+                - defined
+            ):
                 if callee not in needed:
                     needed.add(callee)
                     pending.append(callee)
@@ -492,6 +503,7 @@ class Cart:
             ):
                 raise NameError(f'name {name!r} is not defined')
         translator = self._make_translator(functions)
+        translator.bind_imports(tree)
         translator.uint16_vars = {
             name for name, size in ram_vars.items() if size == 2
         }
