@@ -70,10 +70,13 @@ class ScopeMangler(ast.NodeTransformer):
                 stmt.target, ast.Name
             ):
                 bound.add(stmt.target.id)
-            elif isinstance(stmt, ast.For) and isinstance(
-                stmt.target, ast.Name
-            ):
-                bound.add(stmt.target.id)
+            elif isinstance(stmt, ast.For):
+                if isinstance(stmt.target, ast.Name):
+                    bound.add(stmt.target.id)
+                elif isinstance(stmt.target, ast.Tuple):
+                    for elt in stmt.target.elts:
+                        if isinstance(elt, ast.Name):
+                            bound.add(elt.id)
         # augmented assignment makes a name local (like Python); with
         # no binding assignment it can never be initialized, which in
         # Python is an UnboundLocalError at runtime
@@ -189,6 +192,10 @@ class VarTable(ast.NodeVisitor):
         # the loop target is assigned by the loop itself
         if isinstance(node.target, ast.Name):
             self.get_var(node.target.id).assigns += 1
+        elif isinstance(node.target, ast.Tuple):
+            for elt in node.target.elts:
+                if isinstance(elt, ast.Name):
+                    self.get_var(elt.id).assigns += 1
         self.visit(node.iter)
         for stmt in node.body:
             self.visit(stmt)
@@ -236,6 +243,10 @@ class PythonTo6502:
         self.functions = {}
         self.generator_funcs = set()
         self.uint16_funcs = set()
+        self.builtin_iters = {
+            'range': self._for_over_range,
+            'enumerate': self._for_over_enumerate,
+        }
         for library in libraries or []:
             self.externs.update(library.externs)
             self.const_funcs.update(getattr(library, 'const_funcs', {}))
@@ -418,9 +429,7 @@ class PythonTo6502:
 
     @debug_comment
     def visit_Return(self, node):
-        if node.value is not None and getattr(
-            self, '_returns_uint16', False
-        ):
+        if node.value is not None and getattr(self, '_returns_uint16', False):
             self._return_uint16(node.value)
             return
         if node.value is not None:
@@ -1381,17 +1390,51 @@ class PythonTo6502:
 
     @debug_comment
     def visit_For(self, node):
-        # 'for <name> in <task>(...)' drives a generator task to
-        # completion, one iteration per yield
-        if (
-            isinstance(node.iter, ast.Call)
-            and isinstance(node.iter.func, ast.Name)
-            and node.iter.func.id in self.generator_funcs
+        if isinstance(node.iter, ast.Call) and isinstance(
+            node.iter.func, ast.Name
         ):
-            self._for_over_generator(node)
-            return
+            name = node.iter.func.id
+            # python builtins with a 6502 counterpart (range,
+            # enumerate, ...) live in a registry
+            builtin = self.builtin_iters.get(name)
+            if builtin is not None:
+                builtin(node)
+                return
+            # 'for <name> in <task>(...)' drives a generator task to
+            # completion, one iteration per yield
+            if name in self.generator_funcs:
+                self._for_over_generator(node)
+                return
         # Only 'for <name> in range(...)' is supported
         self._for_over_range(node)
+
+    def _for_over_enumerate(self, node):
+        """for index, value in enumerate(task(...), start): the index
+        counts iterations from start, the value comes from the
+        yields."""
+        if not (
+            isinstance(node.target, ast.Tuple)
+            and len(node.target.elts) == 2
+            and all(isinstance(e, ast.Name) for e in node.target.elts)
+        ):
+            raise NotImplementedError(
+                'enumerate unpacks (index, value) loop variables'
+            )
+        index_target, value_target = node.target.elts
+        args = node.iter.args
+        inner = args[0] if args else None
+        if not (
+            isinstance(inner, ast.Call)
+            and isinstance(inner.func, ast.Name)
+            and inner.func.id in self.generator_funcs
+        ):
+            raise NotImplementedError(
+                'enumerate() supports generator tasks only'
+            )
+        start = args[1] if len(args) > 1 else ast.Constant(value=0)
+        self._eval_to_a(start)
+        self.output.append(f'STA {index_target.id}')
+        self._generator_loop(node, inner, value_target.id, index_target.id)
 
     def _for_over_generator(self, node):
         """Drive a generator task to completion: each yield delivers
@@ -1400,9 +1443,12 @@ class PythonTo6502:
             raise NotImplementedError(
                 'Only simple loop variables are supported'
             )
+        self._generator_loop(node, node.iter, node.target.id)
+
+    def _generator_loop(self, node, call, value_name, index_name=None):
         if node.orelse:
             raise NotImplementedError('for/else is not supported')
-        name = node.iter.func.id
+        name = call.func.id
         params = self.functions.get(name, [])
         loop_label = self._generate_label()
         body_label = self._generate_label()
@@ -1411,7 +1457,7 @@ class PythonTo6502:
         # bound once, exactly like Python
         self.output.append('LDA #0')
         self.output.append(f'STA {name}__state')
-        for arg, param in zip(node.iter.args, params):
+        for arg, param in zip(call.args, params):
             self._eval_to_a(arg)
             self.output.append(f'STA {param}')
         self.output.append(f'{loop_label}:')
@@ -1421,9 +1467,11 @@ class PythonTo6502:
         self.output.append(f'JMP {end_label}')
         self.output.append(f'{body_label}:')
         self.output.append('LDA yield_value')
-        self.output.append(f'STA {node.target.id}')
+        self.output.append(f'STA {value_name}')
         for stmt in node.body:
             self.visit(stmt)
+        if index_name is not None:
+            self.output.append(f'INC {index_name}')
         self.output.append(f'JMP {loop_label}')
         self.output.append(f'{end_label}:')
 

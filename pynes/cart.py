@@ -391,8 +391,9 @@ class Cart:
                 and isinstance(node.value, ast.Name)
             }
             for node in ast.walk(function):
-                if not isinstance(node, (ast.FunctionDef, ast.While,
-                                         ast.For, ast.If)):
+                if not isinstance(
+                    node, (ast.FunctionDef, ast.While, ast.For, ast.If)
+                ):
                     continue
                 for i, stmt in enumerate(node.body):
                     if (

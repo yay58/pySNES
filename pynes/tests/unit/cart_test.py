@@ -613,6 +613,73 @@ def main():
         self.assertNotIn('helper_var_shared', asm)
 
 
+ENUMERATE_SOURCE = '''
+def countdown(n):
+    while n > 0:
+        yield n
+        n -= 1
+
+@reset
+def main():
+    for var_i, var_v in enumerate(countdown(3)):
+        put_num(var_v)
+'''
+
+
+class CartEnumerateTest(TestCase):
+    """enumerate() over a generator: the loop unpacks (index, value),
+    the index counting from the optional start."""
+
+    def _compile(self, source):
+        from neslib.library import lib
+
+        return Cart(libraries=[lib]).compile(source)
+
+    def setUp(self):
+        self.asm = self._compile(ENUMERATE_SOURCE)
+
+    def test_both_loop_variables_are_allocated(self):
+        self.assertIn('main_var_i .rs 1', self.asm)
+        self.assertIn('main_var_v .rs 1', self.asm)
+
+    def test_index_starts_at_zero_and_counts_the_yields(self):
+        self.assertIn('STA main_var_i', self.asm)
+        self.assertIn('INC main_var_i', self.asm)
+
+    def test_value_comes_from_the_yield(self):
+        self.assertIn('LDA yield_value', self.asm)
+        self.assertIn('STA main_var_v', self.asm)
+
+    def test_start_offset_initializes_the_index(self):
+        asm = self._compile(
+            ENUMERATE_SOURCE.replace(
+                'enumerate(countdown(3))', 'enumerate(countdown(3), 10)'
+            )
+        )
+        self.assertIn('LDA #10', asm)
+
+    def test_enumerate_requires_a_tuple_target(self):
+        with self.assertRaises(NotImplementedError):
+            self._compile(
+                '''
+def countdown(n):
+    while n > 0:
+        yield n
+        n -= 1
+
+@reset
+def main():
+    for var_pair in enumerate(countdown(3)):
+        put_num(var_pair)
+'''
+            )
+
+    def test_parseable_by_nesasm(self):
+        tokens = lexical(self.asm)
+        ast = syntax(tokens)
+        self.assertTrue(len(ast) > 0)
+
+
 UINT16_RETURN_SOURCE = '''
 from pynes.types import uint16
 
