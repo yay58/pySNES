@@ -372,6 +372,45 @@ class Cart:
         return new
 
     @staticmethod
+    def _runtime_routines(library):
+        """Split the library runtime into named routines: blocks are
+        separated by blank lines and named by their first label."""
+        routines = {}
+        for asm in library.runtime_asm:
+            block = []
+            for line in asm.splitlines() + ['']:
+                if line.strip():
+                    block.append(line)
+                elif block:
+                    name = block[0].split(':')[0].strip()
+                    routines[name] = block
+                    block = []
+        return routines
+
+    @staticmethod
+    def _called_labels(lines):
+        labels = set()
+        for line in lines:
+            parts = line.split()
+            if len(parts) >= 2 and parts[0] in ('JSR', 'JMP'):
+                labels.add(parts[1])
+        return labels
+
+    def _used_routines(self, program, routines):
+        """Cartridge space is precious: only the routines transitively
+        reachable from the program get bundled."""
+        needed = self._called_labels(program) & set(routines)
+        pending = list(needed)
+        while pending:
+            for callee in self._called_labels(
+                routines[pending.pop()]
+            ) & set(routines):
+                if callee not in needed:
+                    needed.add(callee)
+                    pending.append(callee)
+        return needed
+
+    @staticmethod
     def _annotate_uint16_returns(functions):
         """uint16 returns are a compiler concern: delegate to the
         translator-level helper."""
@@ -544,9 +583,15 @@ class Cart:
             out.append('')
 
         for library in self.libraries:
+            routines = self._runtime_routines(library)
+            needed = self._used_routines(out, routines)
+            if not needed:
+                continue
             out.append(f'; runtime: {library.name}')
-            out.extend(library.runtime_asm)
-            out.append('')
+            for name, block in routines.items():
+                if name in needed:
+                    out.extend(block)
+                    out.append('')
 
         if rom_data:
             out.append('; data')

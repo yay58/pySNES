@@ -613,6 +613,67 @@ def main():
         self.assertNotIn('helper_var_shared', asm)
 
 
+class CartRuntimeBundlingTest(TestCase):
+    """Cartridge space is precious: only the runtime routines the
+    program actually calls are bundled. An unused function must
+    leave no reference in the assembly."""
+
+    def _compile(self, source):
+        from neslib.library import lib
+
+        return Cart(libraries=[lib]).compile(source)
+
+    def setUp(self):
+        self.asm = self._compile(
+            '''
+@reset
+def main():
+    pal_col(0, 0x0F)
+    ppu_on_all()
+
+    while True:
+        pass
+'''
+        )
+
+    def test_called_routines_are_bundled(self):
+        self.assertIn('pal_col:', self.asm)
+        self.assertIn('ppu_on_all:', self.asm)
+
+    def test_uncalled_routines_leave_no_reference(self):
+        for routine in (
+            'pad_poll',
+            'put_str',
+            'put_num',
+            'put_num16',
+            'stage_col',
+            'scroll_x',
+            'vram_adr',
+            'oam_dma',
+        ):
+            self.assertNotIn(routine, self.asm)
+
+    def test_indirectly_used_routines_survive(self):
+        # put_num16 is reached through the polymorphic put_num
+        asm = self._compile(
+            '''
+from pynes.types import uint16
+
+@reset
+def main():
+    var_f: uint16 = 40320
+    put_num(var_f)
+'''
+        )
+        self.assertIn('put_num16:', asm)
+        self.assertNotIn('put_str:', asm)
+
+    def test_parseable_by_nesasm(self):
+        tokens = lexical(self.asm)
+        ast = syntax(tokens)
+        self.assertTrue(len(ast) > 0)
+
+
 ENUMERATE_SOURCE = '''
 def countdown(n):
     while n > 0:
