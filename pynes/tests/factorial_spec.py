@@ -81,22 +81,22 @@ class FactorialSpec:
 
         var_f = factorial(8)
 
-        # TODO: self.assertEqual(var_f, 40320)
+        self.assertEqual(var_f, 40320)
+
+    def test_factorial_with_generator(self):
+        def factorial(n):
+            result = 1
+            while n > 1:
+                result = result * n
+                yield result
+                n -= 1
+
+        for value in factorial(5):
+            var_f = value
+
+        self.assertEqual(var_f, 120)
 
     # TODO:
-    # def test_factorial_with_generator(self):
-    #     def factorial(n):
-    #         result = 1
-    #         while n > 1:
-    #             result = result * n
-    #             yield result
-    #             n -= 1
-
-    #     for value in factorial(5):
-    #         var_f = value
-
-    #     self.assertEqual(var_f, 120)
-
     # def test_factorial_with_generator_next(self):
     #     def factorial(n):
     #         result = 1
@@ -112,34 +112,37 @@ class FactorialSpec:
 
     #     self.assertEqual(var_f, 120)
 
-    # def test_factorial_with_generator_array(self):
-    #     def factorial(n):
-    #         result = 1
-    #         while n > 1:
-    #             result = result * n
-    #             yield result
-    #             n -= 1
+    def test_factorial_with_generator_array(self):
+        def factorial(n):
+            result = 1
+            while n > 1:
+                result = result * n
+                yield result
+                n -= 1
 
-    #     var_array = [0,0,0,0]
-    #     index = 0
-    #     for value in factorial(5):
-    #         var_array[index] = value
-    #         index += 1
+        var_array = [0, 0, 0, 0]
+        index = 0
+        for value in factorial(5):
+            var_array[index] = value
+            index += 1
 
-    #     self.assertEqual(var_array, [5, 20, 60, 120])
+        self.assertEqual(var_array, [5, 20, 60, 120])
 
-    # def test_factorial_with_generator_array_enumerate(self):
-    #     def factorial(n):
-    #         result = 1
-    #         while n > 1:
-    #             result = result * n
-    #             yield result
-    #             n -= 1
+    def test_factorial_with_generator_array_enumerate(self):
+        def factorial(n):
+            result = 1
+            while n > 1:
+                result = result * n
+                yield result
+                n -= 1
 
-    #     var_array = [0,0,0,0]
-    #     for index, value in enumerate(factorial(5)):
-    #         var_array[index] = value
+        var_array = [0, 0, 0, 0]
+        for index, value in enumerate(factorial(5)):
+            var_array[index] = value
 
+        self.assertEqual(var_array, [5, 20, 60, 120])
+
+    # TODO:
     # def test_factorial_with_generator_array_append(self):
     #     def factorial(n):
     #         result = 1

@@ -9,6 +9,7 @@ from pynes.translator import (
     ScopeMangler,
     VarTable,
     _Renamer,
+    annotate_uint16_returns,
     has_yield,
 )
 from pynes.chr import TILE_SIZE, encode_stage, encode_tile
@@ -372,49 +373,9 @@ class Cart:
 
     @staticmethod
     def _annotate_uint16_returns(functions):
-        """Functions annotated `-> uint16` return 16 bits. The names
-        they return are inferred as uint16 locals: their first
-        assignment is rewritten into an annotated declaration, so the
-        whole 16-bit machinery (allocation, math) applies."""
-        uint16_funcs = set()
-        for function in functions:
-            if not (
-                isinstance(function.returns, ast.Name)
-                and function.returns.id == 'uint16'
-            ):
-                continue
-            uint16_funcs.add(function.name)
-            returned = {
-                node.value.id
-                for node in ast.walk(function)
-                if isinstance(node, ast.Return)
-                and isinstance(node.value, ast.Name)
-            }
-            for node in ast.walk(function):
-                if not isinstance(
-                    node, (ast.FunctionDef, ast.While, ast.For, ast.If)
-                ):
-                    continue
-                for i, stmt in enumerate(node.body):
-                    if (
-                        isinstance(stmt, ast.Assign)
-                        and len(stmt.targets) == 1
-                        and isinstance(stmt.targets[0], ast.Name)
-                        and stmt.targets[0].id in returned
-                    ):
-                        returned.discard(stmt.targets[0].id)
-                        node.body[i] = ast.copy_location(
-                            ast.AnnAssign(
-                                target=stmt.targets[0],
-                                annotation=ast.Name(
-                                    id='uint16', ctx=ast.Load()
-                                ),
-                                value=stmt.value,
-                                simple=1,
-                            ),
-                            stmt,
-                        )
-        return uint16_funcs
+        """uint16 returns are a compiler concern: delegate to the
+        translator-level helper."""
+        return annotate_uint16_returns(functions)
 
     def _collect_vars(self, entries, functions=(), extra_labels=()):
         vartable = CartVarTable()

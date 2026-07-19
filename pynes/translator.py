@@ -103,6 +103,61 @@ def has_yield(node):
     return any(isinstance(n, ast.Yield) for n in ast.walk(node))
 
 
+def annotate_uint16_returns(functions):
+    """Functions annotated `-> uint16` return 16 bits. The names
+    they return are inferred as uint16 locals: their first
+    assignment is rewritten into an annotated declaration, so the
+    whole 16-bit machinery (allocation, math) applies."""
+    uint16_funcs = set()
+    for function in functions:
+        if not (
+            isinstance(function.returns, ast.Name)
+            and function.returns.id == 'uint16'
+        ):
+            continue
+        uint16_funcs.add(function.name)
+        returned = {
+            node.value.id
+            for node in ast.walk(function)
+            if isinstance(node, ast.Return)
+            and isinstance(node.value, ast.Name)
+        }
+        for node in ast.walk(function):
+            if not isinstance(
+                node, (ast.FunctionDef, ast.While, ast.For, ast.If)
+            ):
+                continue
+            for i, stmt in enumerate(node.body):
+                if (
+                    isinstance(stmt, ast.Assign)
+                    and len(stmt.targets) == 1
+                    and isinstance(stmt.targets[0], ast.Name)
+                    and stmt.targets[0].id in returned
+                ):
+                    returned.discard(stmt.targets[0].id)
+                    node.body[i] = ast.copy_location(
+                        ast.AnnAssign(
+                            target=stmt.targets[0],
+                            annotation=ast.Name(
+                                id='uint16', ctx=ast.Load()
+                            ),
+                            value=stmt.value,
+                            simple=1,
+                        ),
+                        stmt,
+                    )
+    return uint16_funcs
+
+
+def _is_uint16_call(value, uint16_funcs):
+    """True for calls to functions returning uint16."""
+    return (
+        isinstance(value, ast.Call)
+        and isinstance(value.func, ast.Name)
+        and value.func.id in uint16_funcs
+    )
+
+
 TEMP_VARS = (
     'temp_var',
     'temp_left',
@@ -131,6 +186,7 @@ def _is_uint16_annotation(annotation):
 class VarTable(ast.NodeVisitor):
     def __init__(self):
         self.vars = {}
+        self.uint16_funcs = set()
 
     def get_var(self, name):
         if name not in self.vars:
@@ -148,12 +204,14 @@ class VarTable(ast.NodeVisitor):
 
     def visit_Assign(self, node: ast.Assign):
         # uint16 declaration: allocate two adjacent one-byte slots
-        if _is_uint16_decl(node.value) and isinstance(
-            node.targets[0], ast.Name
-        ):
+        if (
+            _is_uint16_decl(node.value)
+            or _is_uint16_call(node.value, self.uint16_funcs)
+        ) and isinstance(node.targets[0], ast.Name):
             name = node.targets[0].id
             self.get_var(name).assigns += 1
             self.get_var(f'{name}__hi').assigns += 1
+            self.visit(node.value)
             return
         # Handle single and multiple assignments
         for target in node.targets:
@@ -220,6 +278,16 @@ class VarTable(ast.NodeVisitor):
     def locate(self, python_code):
         self.vars = {}
         tree = ScopeMangler().visit(ast.parse(python_code))
+        functions = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.FunctionDef)
+        ]
+        self.uint16_funcs = annotate_uint16_returns(functions)
+        for function in functions:
+            # generator tasks keep their resume point in a state byte
+            if has_yield(function):
+                self.get_var(f'{function.name}__state')
         self.generic_visit(tree)
         for temp in TEMP_VARS:
             self.get_var(temp)
@@ -254,6 +322,20 @@ class PythonTo6502:
     def translate(self, python_code):
         # Parse Python code into an AST, mangling function scopes
         tree = ScopeMangler().visit(ast.parse(python_code))
+        # the compiler is self-sufficient: generator tasks and
+        # uint16 returns are discovered from the source itself
+        functions = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.FunctionDef)
+        ]
+        self.uint16_funcs |= annotate_uint16_returns(functions)
+        for function in functions:
+            if has_yield(function):
+                self.generator_funcs.add(function.name)
+            self.functions.setdefault(
+                function.name, [arg.arg for arg in function.args.args]
+            )
         ast.fix_missing_locations(tree)
 
         # Traverse the AST and generate 6502 assembly code
@@ -797,6 +879,18 @@ class PythonTo6502:
             self.uint16_vars.add(name)
             if node.value.args:
                 self._assign_uint16(name, node.value.args[0])
+            return
+
+        # a call to a -> uint16 function makes the target 16-bit
+        if _is_uint16_call(node.value, self.uint16_funcs) and isinstance(
+            node.targets[0], ast.Name
+        ):
+            name = node.targets[0].id
+            self.uint16_vars.add(name)
+            # the call returns A = low byte, X = high byte
+            self._eval_to_a(node.value)
+            self.output.append(f'STA {name}')
+            self.output.append(f'STX {name}__hi')
             return
 
         # 16-bit assignment to a declared uint16 variable
