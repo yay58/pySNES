@@ -15,10 +15,31 @@ for button in string.gmatch(hold, '[^,]+') do
     buttons[button] = true
 end
 
+local function run_until_idle(max_frames)
+    local last_pc = -1
+    max_frames = 160
+    for frame = 1, max_frames do
+        emu.frameadvance()
+
+        local current_pc = get_pc()
+        
+        if current_pc == last_pc then
+            screen_log("[RUN_IDLE] CPU parked at PC=" .. string.format("0x%04X", current_pc) .. " after " .. frame .. " frames")
+            return true
+        end
+        
+        last_pc = current_pc
+    end
+    screen_log("[RUN_IDLE] Timeout after " .. max_frames .. " frames")
+    return false
+end
+
+
 for _ = 1, frames do
     joypad.set(1, buttons)
     emu.frameadvance()
 end
+
 
 local function count_lit(x1, y1, x2, y2)
     local lit = 0

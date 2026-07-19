@@ -113,3 +113,16 @@ class ForSpec:
             var_acc += 1
 
         self.assertEqual(var_acc, 5)
+
+    # TODO: Implement yield in for loops
+    # def test_for_with_yield_function(self):
+    #     def get_range():
+    #         for var_i in range(3):
+    #             yield var_i
+
+    #     var_acc = 0
+    #     for var_i in get_range():
+    #         var_acc += var_i
+
+    #     self.assertEqual(var_acc, 3)
+

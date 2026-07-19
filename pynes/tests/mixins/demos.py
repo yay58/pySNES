@@ -3,6 +3,7 @@ import importlib
 from functools import lru_cache
 
 from pynes.tests.nes_runner import NESRunner
+from pynes.tests.unit.fceux_runner import FCEUXRunner
 from pynes.tests.factorial_demo_spec import (
     FactorialOneLineSpec,
     FactorialMultilineSpec,
@@ -28,6 +29,12 @@ def get_runner(demo):
 def load_runner(demo):
     runner = get_runner(demo)
     runner.run_reset()
+    return runner
+
+
+def load_fceux_runner(demo):
+    with open(get_demo_filename(demo)) as f:
+        runner = FCEUXRunner(f.read())
     return runner
 
 
@@ -93,6 +100,44 @@ class AbstractFactorialOneLine(AbstractFactorialBase, FactorialOneLineSpec):
             text(self.runner, x, y, len(str(self.get_factorial_result()))),
             str(self.get_factorial_result()).encode(),
         )
+
+
+class AbstractFactorialFCEUXOneLine(AbstractFactorialBase, FactorialOneLineSpec):
+    demo_filename = None
+
+    @classmethod
+    def setUpClass(cls):
+        cls.runner = load_fceux_runner(cls.demo_filename)
+        cls.runner.start_fceux()
+
+    @classmethod
+    def tearDownClass(cls):
+        # Ensure the background process is terminated and ports are cleared after tests finish
+        cls.runner.close_fceux()
+
+    def get_factorial_factor(self):
+        try:
+            label = self.get_demo_attribute('label')
+            return int(label[0])
+        except UnboundLocalError:
+            return 5
+
+    def when_factorial_demo_runs(self):
+        self.runner._run()
+
+    def text(self, x, y, length):
+        base = 0x2000 + y * 32 + x
+        return bytes(self.runner.ppu.vram[base : base + length])
+
+    def assert_text(self, x, y, expected):
+        self.assertEqual(self.text(x, y, len(expected)), expected)
+
+    def assert_factorial_result(self, x, y):
+        self.assertEqual(
+            self.text(x, y, len(str(self.get_factorial_result()))),
+            str(self.get_factorial_result()).encode(),
+        )
+
 
 
 class AbstractFactorialMultiline(

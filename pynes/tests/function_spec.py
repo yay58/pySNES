@@ -99,3 +99,48 @@ class FunctionSpec:
 
         self.assertEqual(var_a, 10)
         self.assertEqual(var_b, 7)
+
+    # TODO:
+    # def test_function_returns_tuple(self):
+    #     def get_tuple():
+    #         return (1, 2)
+
+    #     var_a, var_b = get_tuple()
+
+    #     self.assertEqual(var_a, 1)
+    #     self.assertEqual(var_b, 2)
+
+    # TODO:
+    # def test_function_with_args_returns_tuple(self):
+    #     def swap(a, b):
+    #         return (b, a)
+
+    #     var_a, var_b = swap(1, 2)
+
+    #     self.assertEqual(var_a, 2)
+    #     self.assertEqual(var_b, 1)
+
+    # TODO:
+    # def test_function_with_args_returns_tuple_with_inplace_math(self):
+    #     def plus(a, b):
+    #         return (a + 1, b + 1)
+
+    #     var_a, var_b = plus(1, 2)
+
+    #     self.assertEqual(var_a, 2)
+    #     self.assertEqual(var_b, 3)
+
+    # TODO:
+    # def test_function_with_args_returns_tuple_with_inplace_math_and_condition(self):
+    #     def plus(a, b):
+    #         if a > 10:
+    #             return (a + 1, b + 1)
+    #         return (a, b)
+
+    #     var_a, var_b = plus(1, 2)
+    #     var_c, var_d = plus(15, 20)
+
+    #     self.assertEqual(var_a, 1)
+    #     self.assertEqual(var_b, 2)
+    #     self.assertEqual(var_c, 16)
+    #     self.assertEqual(var_d, 21)

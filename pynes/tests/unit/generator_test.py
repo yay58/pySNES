@@ -3,15 +3,10 @@ generator in CPython (via the neslib step() twin) and as a compiled
 6502 state machine in the headless runner.
 """
 
-import os
 from unittest import TestCase
 
 import neslib
-from pynes.tests.nes_runner import NESRunner
-
-DEMOS_DIR = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', 'demos'
-)
+from pynes.tests.mixins.demos import load_runner
 
 
 class StepTwinTest(TestCase):
@@ -56,8 +51,7 @@ class GeneratorSpecTest(TestCase):
 
     @classmethod
     def setUpClass(cls):
-        with open(os.path.join(DEMOS_DIR, 'sorter_generator.py')) as f:
-            cls.runner = NESRunner(f.read())
+        cls.runner = load_runner('sorter_generator.py')
         cls.runner.run_reset()
 
     def _row(self, y):
@@ -92,8 +86,7 @@ class ArrayParamSpecTest(TestCase):
 
     @classmethod
     def setUpClass(cls):
-        with open(os.path.join(DEMOS_DIR, 'sorter_bubble_3.py')) as f:
-            cls.runner = NESRunner(f.read())
+        cls.runner = load_runner('sorter_bubble_3.py')
         cls.runner.run_reset()
 
     def _row(self, y):
@@ -111,9 +104,7 @@ class ForOverGeneratorSpecTest(TestCase):
 
     @classmethod
     def setUpClass(cls):
-        with open(os.path.join(DEMOS_DIR, 'sorter_generator_1.py')) as f:
-            cls.source = f.read()
-            cls.runner = NESRunner(cls.source)
+        cls.runner = load_runner('sorter_generator_1.py')
         cls.runner.run_reset()
 
     def _text(self, x, y, length):
