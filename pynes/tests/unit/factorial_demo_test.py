@@ -44,3 +44,11 @@ class Factorial7DemoTest(AbstractFactorialMultiline, TestCase):
 
 class Factorial8DemoTest(AbstractFactorialMultiline, TestCase):
     demo_filename = 'factorial_8.py'
+
+
+class Factorial9DemoTest(AbstractFactorialMultiline, TestCase):
+    demo_filename = 'factorial_9.py'
+
+
+class Factorial10DemoTest(AbstractFactorialMultiline, TestCase):
+    demo_filename = 'factorial_10.py'

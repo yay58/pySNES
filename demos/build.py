@@ -23,6 +23,8 @@ DEMOS = [
     'factorial_6.py',
     'factorial_7.py',
     'factorial_8.py',
+    'factorial_9.py',
+    'factorial_10.py',
     'sorter_bubble.py',
     'sorter_bubble_1.py',
     'sorter_bubble_2.py',
