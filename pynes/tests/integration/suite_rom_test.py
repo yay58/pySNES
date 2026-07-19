@@ -1,0 +1,107 @@
+"""Suite ROM: one cartridge collecting many test cases, each
+running with its asserts ON the cartridge and printing its verdict
+('NNN OK' / 'NNN FAIL') on its own line -- the whole test suite
+visually checkable on a NES screen.
+
+Expected values come from the CPython twin: each case body runs in
+Python first, and the on-cart asserts compare against what CPython
+produced.
+"""
+
+import os
+from unittest import TestCase
+
+from pynes.tests.suite import SuiteRom, SuiteRomTestCase
+from pynes.tests.nes_runner import NESRunner
+from pynes.tests.mixins.demos import text
+
+OUTPUT_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    '..', '..', '..',
+    'output',
+    'suite',
+    'SuiteRomTest.nes',
+)
+
+
+class SuiteRomTest(TestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        suite = SuiteRom()
+        suite.add_case('addition', 'var_a = 2 + 3')
+        suite.add_case(
+            'loop',
+            'var_n = 5\n'
+            'var_total = 0\n'
+            'while var_n > 0:\n'
+            '    var_total += var_n\n'
+            '    var_n -= 1\n',
+        )
+        # a broken expectation must FAIL on the cartridge itself
+        suite.add_case('broken', 'var_b = 1 + 1', expect={'var_b': 3})
+        cls.suite = suite
+        cls.rom_path = suite.write_nes(OUTPUT_PATH)
+        cls.runner = NESRunner(suite.python_source())
+        cls.runner.run_reset()
+
+    def _line(self, index):
+        number = text(self.runner, 2, 2 + index, 3)
+        verdict = text(self.runner, 6, 2 + index, 4)
+        return number, verdict
+
+    def test_passing_case_prints_ok(self):
+        number, verdict = self._line(0)
+        self.assertEqual(number, b'001')
+        self.assertEqual(verdict[:2], b'OK')
+
+    def test_case_with_loop_prints_ok(self):
+        number, verdict = self._line(1)
+        self.assertEqual(number, b'002')
+        self.assertEqual(verdict[:2], b'OK')
+
+    def test_on_cart_assert_catches_a_failure(self):
+        number, verdict = self._line(2)
+        self.assertEqual(number, b'003')
+        self.assertEqual(verdict, b'FAIL')
+
+    def test_expectations_come_from_the_cpython_twin(self):
+        self.assertEqual(self.suite.cases[0].expect, {'var_a': 5})
+        self.assertEqual(
+            self.suite.cases[1].expect, {'var_n': 0, 'var_total': 15}
+        )
+
+    def test_nes_file_written_to_the_output_path(self):
+        self.assertTrue(os.path.exists(self.rom_path))
+        with open(self.rom_path, 'rb') as f:
+            header = f.read(4)
+        self.assertEqual(header, b'NES\x1a')
+
+    def test_cases_do_not_share_variables(self):
+        # var_a from case 1 must not leak into other cases: each case
+        # body lives in its own function scope
+        source = self.suite.python_source()
+        self.assertIn('def case_1():', source)
+        self.assertIn('def case_2():', source)
+        self.assertIn('def case_3():', source)
+
+
+class OnCartSuiteTest(SuiteRomTestCase):
+    """Each test gathers its case; tearDownClass builds
+    output/suite/OnCartSuiteTest.nes, boots it on FCEUX and demands
+    an OK on every line."""
+
+    def test_addition(self):
+        self.run_case('var_a = 2 + 3')
+
+    def test_multiplication(self):
+        self.run_case('var_m = 6 * 7')
+
+    def test_while_loop(self):
+        self.run_case(
+            'var_n = 5\n'
+            'var_total = 0\n'
+            'while var_n > 0:\n'
+            '    var_total += var_n\n'
+            '    var_n -= 1\n'
+        )

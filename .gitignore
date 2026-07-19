@@ -21,3 +21,4 @@ pynes/examples/*.nes
 tools/
 venv/
 demos/*.nes
+output/
