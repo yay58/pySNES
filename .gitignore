@@ -3,6 +3,7 @@
 *.egg-info/
 *.exe
 *.fns
+*.log
 *.pyc
 *~
 .DS_Store
