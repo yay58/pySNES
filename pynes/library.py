@@ -34,8 +34,8 @@ class Library:
     """Contract between the compiler core and platform libraries.
 
     A library provides:
-    - externs: function names callable from user code, each backed by an
-      emitter ``fn(translator, args)`` that appends 6502 assembly to
+    - externs: function names callable from user code, each backed by a
+      NesFunction whose caller_code appends 6502 assembly to
       ``translator.output``
     - const_funcs: pure functions evaluated at compile time when all
       their arguments are constants (e.g. nametable address helpers)
@@ -57,18 +57,6 @@ class Library:
         """Register a named constant (e.g. button masks) substituted
         into user code at compile time."""
         self.constants[name] = value
-
-    def extern(self, func=None, *, name=None):
-        """Register an extern emitter. Usable as ``@lib.extern`` or
-        ``@lib.extern(name='alias')``."""
-
-        def register(fn):
-            self.externs[name or fn.__name__] = fn
-            return fn
-
-        if func is not None:
-            return register(func)
-        return register
 
     def function(self, fn):
         """Register a NesFunction: its caller side becomes an extern

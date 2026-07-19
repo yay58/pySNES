@@ -12,6 +12,15 @@ class Beep(NesFunction):
         return 'beep:\n  RTS'
 
 
+class Poke16(NesFunction):
+    def caller_code(self, translator, args):
+        translator.load_arg16(args[0])
+        translator.output.append('JSR poke16')
+
+    def runtime_code(self):
+        return ''
+
+
 class NesFunctionTest(TestCase):
     """A library function is one object holding both sides of the
     contract: caller_code emitted at the call site and runtime_code
@@ -84,10 +93,7 @@ class ConstFunctionTest(TestCase):
         def addr(x, y):
             return 0x2000 | (y << 5) | x
 
-        @lib.extern
-        def poke16(translator, args):
-            translator.load_arg16(args[0])
-            translator.output.append('JSR poke16')
+        lib.function(Poke16())
 
         translator = PythonTo6502(libraries=[lib])
         asm = translator.translate('poke16(addr(10, 14))')
@@ -110,10 +116,7 @@ class RuntimeConstCallTest(TestCase):
             # NTADR_A twin: tile coordinates are 5-bit fields
             return 0x2000 | ((y & 0x1F) << 5) | (x & 0x1F)
 
-        @lib.extern
-        def poke16(translator, args):
-            translator.load_arg16(args[0])
-            translator.output.append('JSR poke16')
+        lib.function(Poke16())
 
         translator = PythonTo6502(libraries=[lib])
         return translator.translate(source)
@@ -140,9 +143,7 @@ class RuntimeConstCallTest(TestCase):
         def crooked(v):
             return v * v
 
-        @lib.extern
-        def poke16(translator, args):
-            translator.load_arg16(args[0])
+        lib.function(Poke16())
 
         translator = PythonTo6502(libraries=[lib])
         with self.assertRaises(NotImplementedError):
@@ -154,20 +155,21 @@ class LibraryContractTest(TestCase):
 
     def test_extern_registration(self):
         lib = Library('mylib')
-
-        @lib.extern
-        def beep(translator, args):
-            translator.output.append('JSR beep')
-
+        lib.function(Beep())
         self.assertIn('beep', lib.externs)
 
-    def test_extern_registration_with_name(self):
+    def test_extern_registration_with_name_override(self):
+        class Anything(NesFunction):
+            name = 'boop'
+
+            def caller_code(self, translator, args):
+                translator.output.append('JSR boop')
+
+            def runtime_code(self):
+                return ''
+
         lib = Library('mylib')
-
-        @lib.extern(name='boop')
-        def anything(translator, args):
-            translator.output.append('JSR boop')
-
+        lib.function(Anything())
         self.assertIn('boop', lib.externs)
 
     def test_runtime_registration(self):
@@ -177,10 +179,7 @@ class LibraryContractTest(TestCase):
 
     def test_translator_emits_extern_call(self):
         lib = Library('mylib')
-
-        @lib.extern
-        def beep(translator, args):
-            translator.output.append('JSR beep')
+        lib.function(Beep())
 
         translator = PythonTo6502(libraries=[lib])
         asm = translator.translate('beep()')
@@ -190,13 +189,16 @@ class LibraryContractTest(TestCase):
         lib = Library('mylib')
         seen = {}
 
-        @lib.extern
-        def beep(translator, args):
-            seen['count'] = len(args)
-            translator.output.append('JSR beep')
+        class Probe(Beep):
+            def caller_code(self, translator, args):
+                seen['count'] = len(args)
+                super().caller_code(translator, args)
+
+        lib.function(Probe())
+        self.assertIn('probe', lib.externs)
 
         translator = PythonTo6502(libraries=[lib])
-        translator.translate('beep(1, 2)')
+        translator.translate('probe(1, 2)')
         self.assertEqual(seen['count'], 2)
 
     def test_unknown_call_raises(self):
@@ -208,13 +210,15 @@ class LibraryContractTest(TestCase):
         lib_a = Library('a')
         lib_b = Library('b')
 
-        @lib_a.extern
-        def beep(translator, args):
-            translator.output.append('JSR beep')
+        class Boop(NesFunction):
+            def caller_code(self, translator, args):
+                translator.output.append('JSR boop')
 
-        @lib_b.extern
-        def boop(translator, args):
-            translator.output.append('JSR boop')
+            def runtime_code(self):
+                return ''
+
+        lib_a.function(Beep())
+        lib_b.function(Boop())
 
         translator = PythonTo6502(libraries=[lib_a, lib_b])
         asm = translator.translate('beep()\nboop()')
