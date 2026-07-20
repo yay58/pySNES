@@ -1,13 +1,15 @@
-"""Basic 8x8 font bundled with neslib.
+"""Basic 8x8 font bundled with sneslib.
 
 Glyphs are defined as ASCII art (7 rows of 5 columns, '#' = pixel) and
-encoded into NES CHR tiles (2 bitplanes, monochrome: color index 1).
+encoded into SNES CHR tiles (4 bitplanes, monochrome: color index 1).
 Tiles are laid out at their ASCII codes, so writing ord(char) to the
-nametable displays that character.
+VRAM tilemap displays that character.
 """
 
-CHR_BANK_SIZE = 8192
-TILE_SIZE = 16
+# SNES VRAM graphics bank sizes vary; we'll define a standard 16KB space for font block
+CHR_BANK_SIZE = 16384 
+# SNES 4bpp (16 colors) tiles take exactly 32 bytes per 8x8 tile
+TILE_SIZE = 32
 
 GLYPHS = {
     ' ': [
@@ -396,12 +398,24 @@ def glyph_rows(art):
 
 
 def glyph_tile(art):
-    """Encode ASCII art into a 16-byte CHR tile (plane 1 empty)."""
-    return bytes(glyph_rows(art)) + bytes(8)
+    """Encode ASCII art into a 32-byte SNES 4bpp CHR tile (planes 1, 2, 3 empty)."""
+    plane0 = bytes(glyph_rows(art))
+    plane1 = bytes(8) # Corresponde ao plano 1 vazio (índice de cor permanece 1)
+    
+    # SNES 4bpp interlaces planes 0 & 1 into the first 16 bytes
+    first_16_bytes = bytearray(16)
+    for i in range(8):
+        first_16_bytes[i*2] = plane0[i]
+        first_16_bytes[i*2 + 1] = plane1[i]
+        
+    # Planes 2 and 3 remain entirely zeroed out for color index 1 compatibility
+    last_16_bytes = bytes(16) 
+    
+    return bytes(first_16_bytes) + last_16_bytes
 
 
 def font_chr():
-    """Build an 8KB CHR bank with the font tiles at their ASCII codes."""
+    """Build a 16KB CHR bank with the SNES font tiles at their ASCII codes."""
     bank = bytearray(CHR_BANK_SIZE)
     for char, art in GLYPHS.items():
         offset = ord(char) * TILE_SIZE
