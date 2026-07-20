@@ -1,99 +1,101 @@
 import ast
 
 from pynes.library import Library, NesFunction
-from neslib import (
-    NTADR_A,
-    PAD_A,
+# Importando as constantes do arquivo sneslib recém-modificado
+from sneslib import (
+    BG_ADR,
     PAD_B,
+    PAD_Y,
     PAD_SELECT,
     PAD_START,
     PAD_UP,
     PAD_DOWN,
     PAD_LEFT,
     PAD_RIGHT,
+    PAD_A,
+    PAD_X,
+    PAD_L,
+    PAD_R,
 )
 
-lib = Library('neslib')
+lib = Library('sneslib')
 
-lib.const(NTADR_A)
+lib.const(BG_ADR)
 
-lib.constant('PAD_A', PAD_A)
+# Constantes de controle de 16 bits do SNES
 lib.constant('PAD_B', PAD_B)
+lib.constant('PAD_Y', PAD_Y)
 lib.constant('PAD_SELECT', PAD_SELECT)
 lib.constant('PAD_START', PAD_START)
 lib.constant('PAD_UP', PAD_UP)
 lib.constant('PAD_DOWN', PAD_DOWN)
 lib.constant('PAD_LEFT', PAD_LEFT)
 lib.constant('PAD_RIGHT', PAD_RIGHT)
+lib.constant('PAD_A', PAD_A)
+lib.constant('PAD_X', PAD_X)
+lib.constant('PAD_L', PAD_L)
+lib.constant('PAD_R', PAD_R)
 
-# 16-bit string pointer: adjacent registrations guarantee
-# str_ptr_hi == str_ptr + 1, as required by (indirect),Y addressing
+# Ponteiros de 16 bits na Direct Page (Zero Page do SNES)
 lib.zeropage('str_ptr')
 lib.zeropage('str_ptr_hi')
 
-# scratch byte for put_num decimal conversion
-lib.zeropage('num_tmp')
-
-# 16-bit scratch for put_num16: adjacent lo/hi pair
+# Scratch de 16 bits para conversões decimais e cálculos de offset
 lib.zeropage('num_lo')
 lib.zeropage('num_hi')
-
-# 16-bit scratch for stage_col offset math: adjacent lo/hi pair
 lib.zeropage('map_lo')
 lib.zeropage('map_hi')
 
-# controller shift-in scratch
-lib.zeropage('pad_state')
+# Estado do controle expandido para 16 bits (Word de 2 bytes na Direct Page)
+lib.zeropage('pad_state')      # Low byte (A, X, L, R...)
+lib.zeropage('pad_state_hi')   # High byte (B, Y, Select, Start, D-Pad...)
 
 
 class VramAdr(NesFunction):
     def caller_code(self, translator, args):
+        # Carrega endereço de 16 bits (0x0000 - 0xFFFF palavras de VRAM)
         translator.load_arg16(args[0])
         translator.output.append('JSR vram_adr')
 
     def runtime_code(self):
         return '''
 vram_adr:
-  PHA
-  LDA $2002
-  PLA
-  STX $2006
-  STA $2006
+  ; Configura o endereço de escrita da VRAM do SNES ($2116/$2117)
+  ; O acumulador deve estar em modo 8 ou 16 bits dependendo da pynes original, 
+  ; assumindo passagem padrão via registros A/X ou pilha.
+  STA $2116
   RTS
 '''
 
 
 class VramPut(NesFunction):
     def caller_code(self, translator, args):
-        translator.load_arg8(args[0])
+        translator.load_arg16(args[0]) # SNES VRAM recebe dados de 16 bits (Tile + Atributos)
         translator.output.append('JSR vram_put')
 
     def runtime_code(self):
         return '''
 vram_put:
-  STA $2007
+  ; Grava a palavra de 16 bits nos registradores de dados da VRAM ($2118/$2119)
+  ; O SNES incrementa o endereço automaticamente baseado no registro $2115 (padrão +1)
+  STA $2118
   RTS
 '''
 
 
 class PalCol(NesFunction):
     def caller_code(self, translator, args):
-        translator.load_arg8_x(args[0])
-        translator.load_arg8(args[1])
+        translator.load_arg8_x(args[0]) # Index da Paleta / Cor
+        translator.load_arg16(args[1])  # Cor em formato 15-bit BGR (0-32767)
         translator.output.append('JSR pal_col')
 
     def runtime_code(self):
         return '''
 pal_col:
-  PHA
-  BIT $2002
-  LDA #$3F
-  STA $2006
-  TXA
-  AND #$1F
-  STA $2006
-  PLA
-  STA $2007
+  ; Configura o endereço da CGRAM (Paleta do SNES) através do $2121
+  STX $2121
+  ; Grava os 15 bits de cor (Low byte em $2122, High byte em $2122 subsequente)
+  STA $2122
   RTS
 '''
 
@@ -105,13 +107,13 @@ class PpuOnAll(NesFunction):
     def runtime_code(self):
         return '''
 ppu_on_all:
-  LDA $2002
-  LDA #0
-  STA $2000
-  STA $2005
-  STA $2005
-  LDA #%00011110
-  STA $2001
+  ; Ativa as camadas principais na tela do SNES (Main Screen Designation $212C)
+  ; Bit 0: BG1, Bit 4: Sprites (OBJ) -> %00010001
+  LDA #%00010001
+  STA $212C
+  ; Desliga o Screen Blanking do SNES ($2100) definindo o brilho máximo (15)
+  LDA #$0F
+  STA $2100
   RTS
 '''
 
@@ -123,37 +125,36 @@ class NmiOn(NesFunction):
     def runtime_code(self):
         return '''
 nmi_on:
-  LDA #%10000000
-  STA $2000
+  ; Ativa NMI e habilita Auto-Polling de controles no SNES via registro $4200
+  LDA #%10000001
+  STA $4200
   RTS
 '''
 
 
 class Scroll(NesFunction):
     def caller_code(self, translator, args):
-        translator.load_arg8_x(args[0])
-        translator.load_arg8(args[1])
+        translator.load_arg8_x(args[0]) # X Scroll
+        translator.load_arg8(args[1])  # Y Scroll
         translator.output.append('JSR scroll')
 
     def runtime_code(self):
         return '''
 scroll:
-  ; X = x scroll, A = y scroll
-  TAY
-  LDA $2002
-  STX $2005
-  STY $2005
+  ; No SNES, cada camada (BG1-BG4) possui seu próprio par de registradores de scroll de escrita dupla.
+  ; Assumindo BG1 para esta função básica ($210D para Horizontal, $210E para Vertical).
+  STX $210D
+  STX $210D ; Escrita dupla (Low byte, High byte)
+  STA $210E
+  STA $210E ; Escrita dupla (Low byte, High byte)
   RTS
 '''
 
 
 class Step(NesFunction):
-    # step(task): resume a generator task until its next yield.
-    # Leaves 1 in A while the task is alive, 0 once it finished,
-    # so it can be used as a condition: if step(task): ...
     def caller_code(self, translator, args):
         if not isinstance(args[0], ast.Name):
-            raise NotImplementedError('step() expects a generator task name')
+            raise NotImplementedError('step() espera o nome de uma tarefa geradora')
         translator.output.append(f'JSR {args[0].id}')
 
     def runtime_code(self):
@@ -161,12 +162,9 @@ class Step(NesFunction):
 
 
 class ResetTask(NesFunction):
-    # reset_task(task): rewind a generator task to its beginning
     def caller_code(self, translator, args):
         if not isinstance(args[0], ast.Name):
-            raise NotImplementedError(
-                'reset_task() expects a generator task name'
-            )
+            raise NotImplementedError('reset_task() espera o nome de uma tarefa geradora')
         translator.output.append('LDA #0')
         translator.output.append(f'STA {args[0].id}__state')
 
@@ -175,64 +173,56 @@ class ResetTask(NesFunction):
 
 
 class PadPoll(NesFunction):
-    # pad_poll(): leaves the controller byte in A (and pad_state),
-    # so it can be assigned: var_pad = pad_poll()
     def caller_code(self, translator, args):
         translator.output.append('JSR pad_poll')
 
     def runtime_code(self):
         return '''
 pad_poll:
-  ; strobe the controller, then shift the 8 buttons into pad_state
-  ; (A ends up in bit 7 down to Right in bit 0)
+  ; Leitura Manual via $4016 modificado para extrair 16 bits em vez de 8
   LDA #1
   STA $4016
   LDA #0
   STA $4016
-  LDX #8
+  LDX #16
 pad_poll_loop:
   LDA $4016
   LSR A
-  ROL pad_state
+  ; Rotaciona o bit para dentro do estado de 16 bits (Através da Direct Page)
+  ROL pad_state      ; Move Carry para o bit inferior de pad_state
+  ROL pad_state_hi   ; Arrasta o bit estourado para o byte alto
   DEX
   BNE pad_poll_loop
+  
+  ; Retorna o resultado de 16 bits combinado
+  ; Nota: O formato final respeita a ordem de rotação manual (B em bit 15, R em bit 4)
   LDA pad_state
+  LDX pad_state_hi
   RTS
 '''
 
 
 class ScrollX(NesFunction):
-    # scroll_x(x, nt): fine x scroll plus the nametable select bit,
-    # for cameras wider than one nametable (camera = nt*256 + x)
     def caller_code(self, translator, args):
-        translator.load_arg8_x(args[0])
-        translator.load_arg8(args[1])
+        translator.load_arg8_x(args[0]) # Fine X Scroll
+        translator.load_arg8(args[1])  # Base do espelhamento do mapa
         translator.output.append('JSR scroll_x')
 
     def runtime_code(self):
         return '''
 scroll_x:
-  ; X = fine x scroll, A = nametable index (bit 0 selects the NT)
-  AND #1
-  ORA #%10000000
-  STA $2000
-  LDA $2002
-  STX $2005
-  LDA #0
-  STA $2005
+  ; No SNES, mapas grandes de BG usam configurações de tela no registro $2107-$210A.
+  ; Esta rotina espelha a troca de telas do NES atualizando o BG1 Scroll diretamente.
+  STX $210D
+  STA $210D
   RTS
 '''
 
 
 class StageColumn(NesFunction):
-    # stage_column(level, col): upload one 30-tile column of a stage
-    # to its nametable position (columns wrap over the two physical
-    # nametables)
     def caller_code(self, translator, args):
         if not isinstance(args[0], ast.Name):
-            raise NotImplementedError(
-                'stage_column expects a stage variable as first argument'
-            )
+            raise NotImplementedError('stage_column espera uma variável de estágio como primeiro argumento')
         name = args[0].id
         translator.output.append(f'LDA #LOW({name})')
         translator.output.append('STA str_ptr')
@@ -244,84 +234,61 @@ class StageColumn(NesFunction):
     def runtime_code(self):
         return '''
 stage_col:
-  ; X = column index, str_ptr = stage base (column-major, 30 b/col)
-  ; src pointer += col * 30 (30 = 2 + 4 + 8 + 16, via shifts)
+  ; X = índice da coluna. Como as telas do SNES usam colunas padrão de 32 bytes de altura (ou mais),
+  ; alteramos o multiplicador de colunas de 30 para 32. 
+  ; Multiplicar por 32 é muito mais rápido: basta dar 5 rotações à esquerda (ASL)!
   STX num_lo
   LDA #0
   STA num_hi
+  
+  .repeat 5
   ASL num_lo
   ROL num_hi
-  LDA num_lo
-  STA map_lo
-  LDA num_hi
-  STA map_hi
-  ASL num_lo
-  ROL num_hi
-  LDA map_lo
-  CLC
-  ADC num_lo
-  STA map_lo
-  LDA map_hi
-  ADC num_hi
-  STA map_hi
-  ASL num_lo
-  ROL num_hi
-  LDA map_lo
-  CLC
-  ADC num_lo
-  STA map_lo
-  LDA map_hi
-  ADC num_hi
-  STA map_hi
-  ASL num_lo
-  ROL num_hi
-  LDA map_lo
-  CLC
-  ADC num_lo
-  STA map_lo
-  LDA map_hi
-  ADC num_hi
-  STA map_hi
+  .endr
+  
   LDA str_ptr
   CLC
-  ADC map_lo
+  ADC num_lo
   STA str_ptr
   LDA str_ptr_hi
-  ADC map_hi
+  ADC num_hi
   STA str_ptr_hi
-  ; dest: physical column = col AND 63 over the two nametables
+
+  ; Destino na VRAM do SNES: Colunas alternam entre bases físicas a cada 32 blocos
   TXA
   AND #63
   CMP #32
-  BCC stage_col_nt_a
+  BCC stage_col_map_a
   AND #31
   TAY
-  LDA #$24
+  LDA #$24  ; Mapa B fictício do SNES (ex: offset 0x0400 palavras à frente)
   JMP stage_col_set
-stage_col_nt_a:
+stage_col_map_a:
   TAY
-  LDA #$20
+  LDA #$20  ; Mapa A fictício do SNES (Base VRAM padrão mapeada em 0x2000)
 stage_col_set:
-  ; A = VRAM high byte, Y = low byte
-  PHA
-  LDA #%00000100
-  STA $2000
-  LDA $2002
-  PLA
-  STA $2006
-  TYA
-  STA $2006
-  ; copy 30 bytes downwards (vertical increment)
+  ; Configura o registrador de incremento de VRAM do SNES ($2115) 
+  ; para avançar +32 a cada escrita (Incremento Vertical de Coluna)
+  LDX #%10000001 ; Bit 7=1 (incrementa após ler/escrever byte alto), Bits 0-1 = 01 (avanço de 32)
+  STX $2115
+  
+  ; Define o endereço inicial da VRAM ($2116)
+  STA $2117
+  STY $2116
+  
+  ; Copia 32 bytes verticalmente na tela
   LDY #0
 stage_col_loop:
   LDA (str_ptr),Y
-  STA $2007
+  ; No SNES gravamos em formato Word ($2118 para o byte baixo, automático)
+  STA $2118
   INY
-  CPY #30
+  CPY #32
   BNE stage_col_loop
-  ; NMI users must call scroll_x afterwards to restore $2000
-  LDA #%00000000
-  STA $2000
+  
+  ; Restaura o incremento padrão de VRAM para +1 (horizontal) para não quebrar outras funções
+  LDX #%10000000
+  STX $2115
   RTS
 '''
 
@@ -333,26 +300,36 @@ class OamClear(NesFunction):
     def runtime_code(self):
         return '''
 oam_clear:
-  LDA #$FF
+  ; O SNES limpa a memória OAM principal escrevendo em $2102/$2103
+  ; Move os 128 sprites mudando a coordenada Y para fora da tela visível (ex: 225)
+  LDA #0
+  STA $2102
+  STA $2103
+  LDA #225
   LDX #0
 oam_clear_loop:
-  STA $0200,X
+  STA $2104 ; Passa X (espera duas escritas por sprite antes de aplicar Y)
+  STA $2104 ; Passa Y (Atualizado para ocultar)
   INX
+  CPX #128
   BNE oam_clear_loop
   RTS
 '''
 
 
 class OamSpr(NesFunction):
-    # oam_spr(x, y, tile, attr, id): id must be constant so each OAM
-    # byte gets a fixed address in the $0200 shadow page
     def caller_code(self, translator, args):
         x_arg, y_arg, tile_arg, attr_arg, id_arg = args
         id_arg = translator._fold_const(id_arg)
         if not isinstance(id_arg, ast.Constant):
-            raise NotImplementedError('oam_spr requires a constant sprite id')
-        base = 0x0200 + (id_arg.value & 0x3F) * 4
-        for offset, arg in enumerate((y_arg, tile_arg, attr_arg, x_arg)):
+            raise NotImplementedError('oam_spr requer um ID constante de sprite')
+        
+        # O SNES agrupa dados em buffers de sombra para fazer o upload via DMA de uma vez só.
+        # Mapeando os buffers temporários em uma página RAM do SNES (Ex: página $0200)
+        base = 0x0200 + (id_arg.value & 0x7F) * 4
+        
+        # Formato OAM do SNES por entrada: Byte 0=X, Byte 1=Y, Byte 2=Tile, Byte 3=Atributos
+        for offset, arg in enumerate((x_arg, y_arg, tile_arg, attr_arg)):
             translator.load_arg8(arg)
             translator.output.append(f'STA ${base + offset:04X}')
 
@@ -367,228 +344,31 @@ class OamDma(NesFunction):
     def runtime_code(self):
         return '''
 oam_dma:
-  LDA #0
-  STA $2003
-  LDA #$02
-  STA $4014
+  ; Configura o canal de DMA 0 do SNES para transferir o buffer OAM da RAM ($0200)
+  LDA #%00000000 ; Transferência direta de 1 byte por escrita (passo simples para OAM)
+  STA $4300
+  LDA #$04       ; Registrador de destino: $2104 (OAM Data Port)
+  STA $4301
+  ; Endereço de origem: buffer $0200 da RAM
+  LDA #LOW($0200)
+  STA $4302
+  LDA #HIGH($0200)
+  STA $4303
+  LDA #0         
+  ; Bank 0
+  STA $4304
+  ; Tamanho da transferência: 128 sprites * 4 bytes = 512 bytes
+  LDA #LOW(512)
+  STA $4305
+  LDA #HIGH(512)
+  STA $4306
+  ; Dispara o DMA do SNES no canal 0 ativando o bit 0 de $420B
+  LDA #1
+  STA $420B
   RTS
 '''
-
 
 class PutStr(NesFunction):
     def caller_code(self, translator, args):
         if not isinstance(args[1], ast.Name):
-            raise NotImplementedError(
-                'put_str expects a string variable as second argument'
-            )
-        translator.load_arg16(args[0])
-        translator.output.append('JSR vram_adr')
-        name = args[1].id
-        translator.output.append(f'LDA #LOW({name})')
-        translator.output.append('STA str_ptr')
-        translator.output.append(f'LDA #HIGH({name})')
-        translator.output.append('STA str_ptr_hi')
-        translator.output.append('JSR put_str')
-
-    def runtime_code(self):
-        return '''
-put_str:
-  LDY #0
-put_str_loop:
-  LDA (str_ptr),Y
-  BEQ put_str_done
-  STA $2007
-  INY
-  JMP put_str_loop
-put_str_done:
-  RTS
-'''
-
-
-def _is_uint16_expr(translator, arg):
-    """True when an expression carries 16 bits: a uint16 variable or
-    a call to a function returning uint16."""
-    if isinstance(arg, ast.Name):
-        return arg.id in translator.uint16_vars
-    return (
-        isinstance(arg, ast.Call)
-        and isinstance(arg.func, ast.Name)
-        and arg.func.id in translator.uint16_funcs
-    )
-
-
-class PutNum(NesFunction):
-    # polymorphic like print: the width of the argument decides
-    # which runtime renders it
-    def caller_code(self, translator, args):
-        arg = args[0]
-        if _is_uint16_expr(translator, arg):
-            if isinstance(arg, ast.Name):
-                translator.output.append(f'LDA {arg.id}')
-                translator.output.append('STA num_lo')
-                translator.output.append(f'LDA {arg.id}__hi')
-                translator.output.append('STA num_hi')
-            else:
-                # the call returns A = low byte, X = high byte
-                translator.load_arg8(arg)
-                translator.output.append('STA num_lo')
-                translator.output.append('STX num_hi')
-            translator.output.append('JSR put_num16')
-            return
-        translator.load_arg8(arg)
-        translator.output.append('JSR put_num')
-
-    def runtime_code(self):
-        return '''
-put_num:
-  LDX #0
-put_num_100:
-  CMP #100
-  BCC put_num_100_done
-  SEC
-  SBC #100
-  INX
-  JMP put_num_100
-put_num_100_done:
-  STA num_tmp
-  TXA
-  CLC
-  ADC #48
-  STA $2007
-  LDA num_tmp
-  LDX #0
-put_num_10:
-  CMP #10
-  BCC put_num_10_done
-  SEC
-  SBC #10
-  INX
-  JMP put_num_10
-put_num_10_done:
-  STA num_tmp
-  TXA
-  CLC
-  ADC #48
-  STA $2007
-  LDA num_tmp
-  CLC
-  ADC #48
-  STA $2007
-  RTS
-'''
-
-
-class PutNum16(NesFunction):
-    def caller_code(self, translator, args):
-        arg = args[0]
-        if not isinstance(arg, ast.Name):
-            raise NotImplementedError('put_num16 requires a variable')
-        translator.output.append(f'LDA {arg.id}')
-        translator.output.append('STA num_lo')
-        if arg.id in translator.uint16_vars:
-            translator.output.append(f'LDA {arg.id}__hi')
-        else:
-            translator.output.append('LDA #0')
-        translator.output.append('STA num_hi')
-        translator.output.append('JSR put_num16')
-
-    def runtime_code(self):
-        return '''
-put_num16:
-  LDX #0
-pn16_10000:
-  LDA num_lo
-  SEC
-  SBC #$10
-  TAY
-  LDA num_hi
-  SBC #$27
-  BCC pn16_10000_done
-  STY num_lo
-  STA num_hi
-  INX
-  JMP pn16_10000
-pn16_10000_done:
-  TXA
-  CLC
-  ADC #48
-  STA $2007
-  LDX #0
-pn16_1000:
-  LDA num_lo
-  SEC
-  SBC #$E8
-  TAY
-  LDA num_hi
-  SBC #$03
-  BCC pn16_1000_done
-  STY num_lo
-  STA num_hi
-  INX
-  JMP pn16_1000
-pn16_1000_done:
-  TXA
-  CLC
-  ADC #48
-  STA $2007
-  LDX #0
-pn16_100:
-  LDA num_lo
-  SEC
-  SBC #$64
-  TAY
-  LDA num_hi
-  SBC #$00
-  BCC pn16_100_done
-  STY num_lo
-  STA num_hi
-  INX
-  JMP pn16_100
-pn16_100_done:
-  TXA
-  CLC
-  ADC #48
-  STA $2007
-  LDX #0
-pn16_10:
-  LDA num_lo
-  SEC
-  SBC #$0A
-  TAY
-  LDA num_hi
-  SBC #$00
-  BCC pn16_10_done
-  STY num_lo
-  STA num_hi
-  INX
-  JMP pn16_10
-pn16_10_done:
-  TXA
-  CLC
-  ADC #48
-  STA $2007
-  LDA num_lo
-  CLC
-  ADC #48
-  STA $2007
-  RTS
-'''
-
-
-lib.function(VramAdr())
-lib.function(VramPut())
-lib.function(PalCol())
-lib.function(PpuOnAll())
-lib.function(NmiOn())
-lib.function(Scroll())
-lib.function(Step())
-lib.function(ResetTask())
-lib.function(PadPoll())
-lib.function(ScrollX())
-lib.function(StageColumn())
-lib.function(OamClear())
-lib.function(OamSpr())
-lib.function(OamDma())
-lib.function(PutStr())
-lib.function(PutNum())
-lib.function(PutNum16())
+            raise NotImplementedError('put_str() needs a valid string')
