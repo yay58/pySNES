@@ -5,63 +5,72 @@ mock, while `neslib.library` provides the compile-time definitions used
 by the pyNES compiler to generate real 6502 code.
 """
 
-from neslib.ppu import PPU, MASK_ON_ALL, CTRL_NMI
-from neslib.pad import Pad
+from sneslib.ppu import PPU, MASK_ON_ALL, CTRL_NMI
+from sneslib.pad import Pad
 
 ppu = PPU()
 pad = Pad()
 
-# controller buttons, in shift-out order (A first)
-PAD_A = 0x80
-PAD_B = 0x40
-PAD_SELECT = 0x20
-PAD_START = 0x10
-PAD_UP = 0x08
-PAD_DOWN = 0x04
-PAD_LEFT = 0x02
-PAD_RIGHT = 0x01
+# SNES Controller Buttons in hardware shift-out order (16-bit masks)
+# Left-shifted into a 16-bit variable as they arrive from $4016
+PAD_B      = 0x8000  # 1st bit out
+PAD_Y      = 0x4000  # 2nd bit out
+PAD_SELECT = 0x2000  # 3rd bit out
+PAD_START  = 0x1000  # 4th bit out
+PAD_UP     = 0x800  # 5th bit out
+PAD_DOWN   = 0x400  # 6th bit out
+PAD_LEFT   = 0x200  # 7th bit out
+PAD_RIGHT  = 0x100  # 8th bit out
+PAD_A      = 0x80  # 9th bit out
+PAD_X      = 0x40  # 10th bit out  <-- Your missing value
+PAD_L      = 0x20  # 11th bit out
+PAD_R      = 0x10  # 12th bit out
 
 
-def NTADR_A(x, y):
-    """Nametable A address for tile coordinate (x, y)."""
-    return 0x2000 | ((y & 0x1F) << 5) | (x & 0x1F)
+def BG_ADR(x, y, bg_base_addr):
+    """Calculates the VRAM word address for a tile coordinate (x, y) on SNES.
+    Assumes a standard 32x32 tile map layout."""
+    return bg_base_addr + ((y & 0x1F) << 5) + (x & 0x1F)
 
 
 def vram_adr(addr):
-    ppu.addr = addr & 0x3FFF
+    # SNES VRAM expands up to 0xFFFF (16-bit word addressing)
+    ppu.addr = addr & 0xFFFF
 
 
 def vram_put(value):
-    ppu.vram[ppu.addr] = value & 0xFF
-    ppu.addr = (ppu.addr + 1) & 0x3FFF
+    # SNES VRAM stores 16-bit words (Tile ID + Attributes)
+    ppu.vram[ppu.addr] = value & 0xFFFF
+    ppu.addr = (ppu.addr + 1) & 0xFFFF
 
 
-def pal_col(index, color):
-    ppu.vram[0x3F00 + (index & 0x1F)] = color & 0xFF
+def pal_col(palette_index, color_index, color_15bit):
+    """SNES CGRAM (Palette RAM) holds 256 colors, each 15-bit BGR (0-32767)."""
+    cgram_addr = (palette_index << 4) + (color_index & 0x0F)
+    ppu.cgram[cgram_addr] = color_15bit & 0x7FFF
 
 
 def ppu_on_all():
-    ppu.mask |= MASK_ON_ALL
+    # SNES uses Screen Screen Designator registers ($212C/$212D) to enable layers
+    ppu.main_screen |= MainScreen_BG1 | MainScreen_OBJ
 
 
 def nmi_on():
-    """Enable the NMI (vblank) interrupt."""
-    ppu.ctrl |= CTRL_NMI
+    """Enable NMI (vblank) via SNES register $4200."""
+    ppu.nmitimen |= 0x80
 
 
-def scroll(x, y):
-    """Set the background scroll position (also resets the internal
-    latch clobbered by VRAM writes during NMI)."""
-    ppu.scroll = (x, y)
+def scroll(bg_id, x, y):
+    """Set the background scroll position for a specific SNES BG layer (1 to 4).
+    SNES scroll registers require two writes (low byte, then high byte)."""
+    ppu.bg_scroll[bg_id] = (x & 0x3FF, y & 0x3FF)
 
 
 _tasks = {}
 
 
 def step(task):
-    """Resume a generator task: run it until its next yield. Returns
-    1 while the task is alive, 0 once it has finished. On the NES the
-    task compiles to a state machine; here it is a real generator."""
+    """Resume a generator task: run it until its next yield."""
     if task not in _tasks:
         _tasks[task] = task()
     gen = _tasks[task]
@@ -81,82 +90,53 @@ def reset_task(task):
 
 
 def pad_poll():
-    """Read the first controller: one byte with A in bit 7 down to
-    Right in bit 0."""
-    return pad.state & 0xFF
+    """Read the first controller: returns a 16-bit integer for SNES."""
+    return pad.state & 0xFFFF
 
 
-def scroll_x(x, nt):
-    """Set the horizontal camera: fine x scroll plus the nametable
-    select bit (camera = nt*256 + x)."""
-    ppu.scroll = (x, 0)
-    ppu.ctrl = (ppu.ctrl & ~0x03) | (nt & 1)
-
-
-def stage_column(level, col):
-    """Upload one 30-tile stage column to its nametable position.
-    Columns wrap over the two physical nametables."""
+def stage_column(level, col, bg_base_addr):
+    """Upload one 32-tile stage column to the SNES tilemap.
+    SNES standard vertical screen fits 28 or 32 tiles depending on mode."""
     rows = level['rows']
-    pad = 30 - len(rows)
     pcol = col & 63
-    base = 0x2000 if pcol < 32 else 0x2400
+    # Standard SNES 64x32 map stepping
+    base = bg_base_addr if pcol < 32 else bg_base_addr + 0x0400
     x = pcol & 31
-    for row in range(30):
-        char = rows[row - pad][col] if row >= pad else '.'
-        ppu.vram[base + row * 32 + x] = 0 if char == '.' else 1
+    for row in range(32):
+        if row < len(rows):
+            char = rows[row][col]
+            # In SNES, VRAM values contain tile index AND attributes (palette, priority)
+            ppu.vram[base + row * 32 + x] = 0x0000 if char == '.' else 0x0001
 
 
 def oam_clear():
-    """Hide all sprites (move them below the visible screen)."""
-    ppu.oam = bytearray(b'\xff' * 256)
-    ppu.oam_tiles = {}
+    """Hide all 128 SNES sprites by moving them off-screen."""
+    # SNES OAM is split into 512 bytes (main data) + 32 bytes (high table for sizes/X bits)
+    ppu.oam = bytearray(b'\xe0' * 512)  # Y=224 moves sprites below standard 224p screen
+    ppu.oam_high = bytearray(b'\x00' * 32)
 
 
 def oam_spr(x, y, tile, attr, sprite_id):
-    """Set one sprite entry in the shadow OAM."""
-    base = (sprite_id & 0x3F) * 4
-    ppu.oam[base] = y & 0xFF
-    ppu.oam[base + 1] = tile & 0xFF if isinstance(tile, int) else 0
-    ppu.oam[base + 2] = attr & 0xFF
-    ppu.oam[base + 3] = x & 0xFF
-    ppu.oam_tiles[sprite_id] = tile
-
-
-def oam_dma():
-    """Copy the shadow OAM to the PPU (a no-op in the mock, where the
-    shadow is the live OAM)."""
+    """Set one sprite entry in the SNES OAM (Main Table)."""
+    base = (sprite_id & 0x7F) * 4
+    ppu.oam[base] = x & 0xFF
+    ppu.oam[base + 1] = y & 0xFF
+    ppu.oam[base + 2] = tile & 0xFF
+    ppu.oam[base + 3] = attr & 0xFF  # Flipping, Palette, Priority, and Name Table bits
 
 
 def put_str(addr, text):
-    """Write a zero-terminated string at a nametable address."""
+    """Write a string to SNES VRAM (each character tile uses 16 bits)."""
     vram_adr(addr)
     for char in text:
-        vram_put(ord(char))
-
-
-def put_num(value):
-    """Write a number as three decimal digits (zero padded) at the
-    current VRAM address."""
-    for char in f'{value:03d}':
-        vram_put(ord(char))
-
-
-def put_num16(value):
-    """Write a 16-bit number as five decimal digits (zero padded) at
-    the current VRAM address."""
-    for char in f'{value:05d}':
-        vram_put(ord(char))
+        vram_put(ord(char))  # Missing attributes defaults to palette 0, priority 0
 
 
 def reset(func):
-    """Entry point decorator: marks the RESET handler."""
-    func.__pynes_entry__ = 'reset'
     return func
 
 
 def nmi(func):
-    """Entry point decorator: marks the NMI (vblank) handler."""
-    func.__pynes_entry__ = 'nmi'
     return func
 
 
