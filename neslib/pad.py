@@ -7,13 +7,13 @@ class Pad:
         self.reset()
 
     def reset(self):
-        self.state = 0
+        self.state = 0  # No SNES, armazena até 16 bits (0xFFFF)
         self.strobe = False
         self.index = 0
 
     def write(self, value):
         """$4016 write: strobe high reloads the shift register;
-        strobe low starts shifting buttons out."""
+        strobe low starts shifting buttons out (same line handles both ports on SNES)."""
         if value & 1:
             self.strobe = True
         else:
@@ -21,12 +21,17 @@ class Pad:
             self.index = 0
 
     def read(self):
-        """$4016 read: one button per read, A first (bit 7 of state).
-        After all 8 buttons, official controllers return 1."""
+        """$4016 read: one button per read, B first (bit 15 of state).
+        After all 16 cycles, official SNES controllers return 0."""
         if self.strobe:
-            return (self.state >> 7) & 1
-        if self.index >= 8:
-            return 1
-        bit = (self.state >> (7 - self.index)) & 1
+            # Se o strobe estiver ativo, o registrador fica travado no primeiro bit (B)
+            return (self.state >> 15) & 1
+            
+        if self.index >= 16:
+            # Após ler os 12 botões + 4 bits de ID, o SNES devolve 0
+            return 0
+            
+        # Desloca os bits a partir do bit 15 (B, Y, Select, Start, Up...) descendo até o bit 0
+        bit = (self.state >> (15 - self.index)) & 1
         self.index += 1
         return bit
